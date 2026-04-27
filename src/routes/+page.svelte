@@ -30,8 +30,8 @@
 
   // タブ定義
   const TABS = [
-    { id: "gotthai", label: "ごったい" },
     { id: "ptj", label: "プログレッシブ" },
+    { id: "gotthai", label: "ごったい" },
     { id: "nabeta", label: "鍋田" },
     { id: "thai", label: "thai-language" },
   ];
