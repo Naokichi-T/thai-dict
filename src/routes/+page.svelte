@@ -515,7 +515,7 @@
 
   /* meaningの中のタイ文字行は大きく表示 */
   .thai-line {
-    font-size: 22px;
+    font-size: 20px;
     font-family: "Sarabun", sans-serif;
   }
 

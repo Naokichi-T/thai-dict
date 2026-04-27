@@ -204,21 +204,52 @@ async function searchNabeta(q, mode, lang, page) {
 
   if (mode === "reading") {
     // reading_normalizedカラムの部分一致検索
-    const { data, error: fetchError } = await supabase.from("nabeta_words").select("id, no, word, meaning, reading").ilike("reading_normalized", `%${q}%`).order("no", { ascending: true }).limit(1000);
+    const { data, error: fetchError } = await supabase
+      .from("nabeta_words")
+      .select("id, no, word, meaning, reading, reading_normalized, frequency")
+      .ilike("reading_normalized", `%${q}%`)
+      .order("no", { ascending: true })
+      .limit(1000);
 
     if (fetchError) {
       return Response.json({ error: fetchError.message }, { status: 500 });
     }
 
-    const count = data.length;
+    /**
+     * スコアをつける関数
+     * 3: reading_normalizedの完全一致
+     * 2: reading_normalizedの前方一致
+     * 1: reading_normalizedの部分一致
+     */
+    function calcScore(item, q) {
+      if (item.reading_normalized === q) return 3;
+      if (item.reading_normalized?.startsWith(q)) return 2;
+      return 1;
+    }
+
+    const allResults = data
+      .map((r) => ({ ...r, score: calcScore(r, q) }))
+      .sort((a, b) => {
+        // スコア降順 → frequency降順 → no昇順
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.frequency !== a.frequency) return b.frequency - a.frequency;
+        return a.no - b.no;
+      });
+
+    const count = allResults.length;
     const start = (page - 1) * PAGE_SIZE;
-    const results = data.slice(start, start + PAGE_SIZE);
+    const results = allResults.slice(start, start + PAGE_SIZE);
 
     return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
   }
 
   // タイ語検索（wordカラムの部分一致）
-  const { data, error: fetchError } = await supabase.from("nabeta_words").select("id, no, word, meaning, reading").ilike(column, `%${q}%`).order("no", { ascending: true }).limit(1000);
+  const { data, error: fetchError } = await supabase
+    .from("nabeta_words")
+    .select("id, no, word, meaning, reading, reading_normalized")
+    .ilike(column, `%${q}%`)
+    .order("no", { ascending: true })
+    .limit(1000);
 
   if (fetchError) {
     return Response.json({ error: fetchError.message }, { status: 500 });
@@ -226,19 +257,22 @@ async function searchNabeta(q, mode, lang, page) {
 
   /**
    * スコアをつける関数
-   * 2: wordの完全一致
-   * 1: wordの部分一致
+   * 3: reading_normalizedの完全一致
+   * 2: reading_normalizedの前方一致
+   * 1: reading_normalizedの部分一致
    */
   function calcScore(item, q) {
-    if (item.word === q) return 2;
+    if (item.reading_normalized === q) return 3;
+    if (item.reading_normalized?.startsWith(q)) return 2;
     return 1;
   }
 
   const allResults = data
     .map((r) => ({ ...r, score: calcScore(r, q) }))
     .sort((a, b) => {
-      // スコア降順 → no昇順
+      // スコア降順 → frequency降順 → no昇順
       if (b.score !== a.score) return b.score - a.score;
+      if (b.frequency !== a.frequency) return b.frequency - a.frequency;
       return a.no - b.no;
     });
 
