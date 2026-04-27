@@ -138,7 +138,11 @@ async function searchGotthai(q, mode, lang, page) {
   }
 
   // wordsテーブルを全件取得（limitなし）
-  const { data, error: fetchError } = await supabase.from("words").select("id, no, url_no, thai, reading, meaning, frequency, formality").ilike(column, `%${q}%`).order("url_no", { ascending: true });
+  const { data, error: fetchError } = await supabase
+    .from("words")
+    .select("id, no, url_no, url, thai, reading, meaning, frequency, formality")
+    .ilike(column, `%${q}%`)
+    .order("url_no", { ascending: true });
 
   if (fetchError) {
     return Response.json({ error: fetchError.message }, { status: 500 });

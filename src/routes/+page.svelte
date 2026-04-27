@@ -187,8 +187,8 @@
     {:else}
       {#each results as item}
         {#if activeTab === "gotthai"}
-          <!-- ごったいの結果カード -->
-          <div class="card">
+          <!-- ごったいの結果カード（本家サイトを別タブで開く） -->
+          <a class="card" href={item.url} target="_blank" rel="noopener noreferrer">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             <div class="keyword">{@html highlight(item.thai, query, item.score === 3)}</div>
             {#if item.reading}
@@ -204,7 +204,7 @@
                 <span class="badge">フォーマル度 {item.formality}</span>
               {/if}
             </div>
-          </div>
+          </a>
         {:else}
           <!-- プログレッシブの結果カード -->
           <a
