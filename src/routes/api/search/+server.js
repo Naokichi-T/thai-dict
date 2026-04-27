@@ -62,7 +62,11 @@ async function searchPtj(q, mode, lang, page) {
   }
 
   // ptj_wordsを全件取得（limitなし）
-  const { data: wordsData, error: wordsError } = await supabase.from("ptj_words").select("id, no, keyword, reading, meaning, frequency").ilike(column, `%${q}%`).order("no", { ascending: true });
+  const { data: wordsData, error: wordsError } = await supabase
+    .from("ptj_words")
+    .select("id, no, keyword, reading, meaning, frequency, reading_normalized")
+    .ilike(column, `%${q}%`)
+    .order("no", { ascending: true });
 
   if (wordsError) {
     return Response.json({ error: wordsError.message }, { status: 500 });
@@ -71,7 +75,7 @@ async function searchPtj(q, mode, lang, page) {
   // ptj_subを全件取得（limitなし）
   const { data: subData, error: subError } = await supabase
     .from("ptj_sub")
-    .select("id, no, keyword, reading, meaning, parent_keyword, frequency, type")
+    .select("id, no, keyword, reading, meaning, parent_keyword, frequency, type, reading_normalized")
     .ilike(column, `%${q}%`)
     .order("no", { ascending: true });
 
@@ -95,6 +99,15 @@ async function searchPtj(q, mode, lang, page) {
     // type=exampleかつfrequency=0は最低優先度
     if (!isWords && item.type === "example" && item.frequency === 0) return -2;
 
+    // 読みモードのときはreading_normalizedでスコアリングする
+    if (mode === "reading") {
+      const r = item.reading_normalized ?? "";
+      if (r === q) return isWords ? 4 : 3;
+      if (r.startsWith(q)) return isWords ? 2 : 1;
+      return isWords ? 0 : -1;
+    }
+
+    // 意味モードのときはkeywordでスコアリングする
     if (item.keyword === q) return isWords ? 4 : 3;
     if (item.keyword.includes(q)) return isWords ? 2 : 1;
     return isWords ? 0 : -1;
@@ -144,7 +157,7 @@ async function searchGotthai(q, mode, lang, page) {
   // wordsテーブルを全件取得（limitなし）
   const { data, error: fetchError } = await supabase
     .from("words")
-    .select("id, no, url_no, url, thai, reading, meaning, frequency, formality")
+    .select("id, no, url_no, url, thai, reading, meaning, frequency, formality, reading_normalized")
     .ilike(column, `%${q}%`)
     .order("url_no", { ascending: true });
 
@@ -159,6 +172,15 @@ async function searchGotthai(q, mode, lang, page) {
    * 1: meaningの部分一致
    */
   function calcScore(item, q) {
+    // 読みモードのときはreading_normalizedでスコアリングする
+    if (mode === "reading") {
+      const r = item.reading_normalized ?? "";
+      if (r === q) return 3;
+      if (r.startsWith(q)) return 2;
+      return 1;
+    }
+
+    // 意味モードのときはthaiでスコアリングする
     if (item.thai === q) return 3;
     if (item.thai.includes(q)) return 2;
     return 1;
