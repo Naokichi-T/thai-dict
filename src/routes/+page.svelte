@@ -135,6 +135,27 @@
     if (/[\u3040-\u30FF\u4E00-\u9FFF]/.test(q)) return "japanese";
     return "other";
   }
+
+  /**
+   * meaningを行ごとに分割して返す（-------は区切り線に変換）
+   * @param {string} text - 対象テキスト
+   */
+  function splitLines(text) {
+    // 各行を「テキスト行」か「区切り線」かを判定してオブジェクトの配列にする
+    return text.split("\n").map((line) => ({
+      isDivider: /^-+$/.test(line.trim()), // ハイフンだけの行は区切り線
+      text: line,
+    }));
+  }
+
+  /**
+   * タイ文字だけで構成されているかどうかを判定する
+   * @param {string} text - 対象テキスト
+   */
+  function isThai(text) {
+    // スペース・ハイフンを除いた文字が全てタイ文字ならtrue
+    return /^[\u0E00-\u0E7F\s\-]+$/.test(text.trim());
+  }
 </script>
 
 <div class="container">
@@ -205,6 +226,21 @@
               {/if}
             </div>
           </a>
+        {:else if activeTab === "nabeta"}
+          <!-- 鍋田辞書の結果カード -->
+          <div class="card">
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <div class="keyword">{@html highlight(item.word, query, item.score >= 2)}</div>
+            <div class="meaning nabeta-meaning">
+              {#each splitLines(item.meaning) as line}
+                {#if line.isDivider}
+                  <hr class="divider" />
+                {:else}
+                  <span class:thai-line={isThai(line.text)}>{line.text}</span><br />
+                {/if}
+              {/each}
+            </div>
+          </div>
         {:else}
           <!-- プログレッシブの結果カード -->
           <a
@@ -469,5 +505,24 @@
     background: #f0f0f0;
     border-radius: 4px;
     padding: 2px 8px;
+  }
+
+  /* 鍋田辞書のmeaning（改行を表示する） */
+  .nabeta-meaning {
+    white-space: pre-wrap;
+    line-height: 1.6;
+  }
+
+  /* meaningの中のタイ文字行は大きく表示 */
+  .thai-line {
+    font-size: 22px;
+    font-family: "Sarabun", sans-serif;
+  }
+
+  /* 区切り線 */
+  .divider {
+    border: none;
+    border-top: 1px solid #e0e0e0;
+    margin: 8px 0;
   }
 </style>

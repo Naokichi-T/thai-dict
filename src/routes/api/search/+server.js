@@ -35,6 +35,10 @@ export async function GET({ url }) {
     return await searchGotthai(q, mode, lang, page);
   }
 
+  if (tab === "nabeta") {
+    return await searchNabeta(q, mode, lang, page);
+  }
+
   // 未実装のタブは空配列を返す
   return Response.json({ results: [], count: 0 });
 }
@@ -178,4 +182,145 @@ async function searchGotthai(q, mode, lang, page) {
   const results = allResults.slice(start, start + PAGE_SIZE);
 
   return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
+}
+
+/**
+ * 鍋田辞書を検索する
+ * タイ語・読みモード → Supabaseのnabeta_wordsを検索
+ * 日本語／英語 → 本家サイトをスクレイピング
+ * @param {string} q - 検索ワード
+ * @param {string} mode - 検索モード（meaning / reading）
+ * @param {string} lang - 入力言語（thai / japanese / other）
+ * @param {number} page - ページ番号
+ */
+async function searchNabeta(q, mode, lang, page) {
+  // 日本語／英語の意味検索は本家サイトをスクレイピング
+  if (mode === "meaning" && lang !== "thai") {
+    return await scrapeNabeta(q, page);
+  }
+
+  // タイ語検索 → wordカラムで検索
+  const column = "word";
+
+  if (mode === "reading") {
+    // reading_normalizedカラムの部分一致検索
+    const { data, error: fetchError } = await supabase.from("nabeta_words").select("id, no, word, meaning, reading").ilike("reading_normalized", `%${q}%`).order("no", { ascending: true }).limit(1000);
+
+    if (fetchError) {
+      return Response.json({ error: fetchError.message }, { status: 500 });
+    }
+
+    const count = data.length;
+    const start = (page - 1) * PAGE_SIZE;
+    const results = data.slice(start, start + PAGE_SIZE);
+
+    return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
+  }
+
+  // タイ語検索（wordカラムの部分一致）
+  const { data, error: fetchError } = await supabase.from("nabeta_words").select("id, no, word, meaning, reading").ilike(column, `%${q}%`).order("no", { ascending: true }).limit(1000);
+
+  if (fetchError) {
+    return Response.json({ error: fetchError.message }, { status: 500 });
+  }
+
+  /**
+   * スコアをつける関数
+   * 2: wordの完全一致
+   * 1: wordの部分一致
+   */
+  function calcScore(item, q) {
+    if (item.word === q) return 2;
+    return 1;
+  }
+
+  const allResults = data
+    .map((r) => ({ ...r, score: calcScore(r, q) }))
+    .sort((a, b) => {
+      // スコア降順 → no昇順
+      if (b.score !== a.score) return b.score - a.score;
+      return a.no - b.no;
+    });
+
+  const count = allResults.length;
+  const start = (page - 1) * PAGE_SIZE;
+  const results = allResults.slice(start, start + PAGE_SIZE);
+
+  return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
+}
+
+/**
+ * 本家鍋田辞書サイトをスクレイピングして検索結果を返す
+ * @param {string} q - 検索ワード
+ * @param {number} page - ページ番号
+ */
+async function scrapeNabeta(q, page) {
+  try {
+    // 本家サイトに検索リクエストを送る
+    const searchUrl = `https://onlinedict.tk/onlinethai/?dd=0&fs=16&it=${encodeURIComponent(q)}&hk=100&rb=t&sl=bubun&jp=0&m=0`;
+    const res = await fetch(searchUrl);
+    const html = await res.text();
+
+    // HTMLをパースして結果を取り出す
+    const allResults = parseNabetaHtml(html, q);
+    const count = allResults.length;
+    const start = (page - 1) * PAGE_SIZE;
+    const results = allResults.slice(start, start + PAGE_SIZE);
+
+    return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
+  } catch (e) {
+    return Response.json({ error: "スクレイピングに失敗しました" }, { status: 500 });
+  }
+}
+
+/**
+ * 鍋田辞書のHTMLをパースして検索結果を返す
+ * nabeta-dictの parseRows と同じロジック＋スコアリング
+ * @param {string} html - 鍋田辞書のHTML
+ * @param {string} q - 検索ワード
+ */
+function parseNabetaHtml(html, q) {
+  const results = [];
+
+  // <table>の中の<tr>を全部取り出す
+  const rowMatches = html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi);
+
+  for (const rowMatch of rowMatches) {
+    const row = rowMatch[1];
+
+    // <td>を2つ取り出す（1つ目：単語、2つ目：訳語）
+    const cellMatches = [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)];
+    if (cellMatches.length < 2) continue;
+
+    // 単語列：<a>タグの中のテキストを取り出す
+    const wordCell = cellMatches[0][1];
+    const wordMatch = wordCell.match(/<a[^>]*>([\s\S]*?)<\/a>/i);
+    if (!wordMatch) continue;
+    const word = wordMatch[1].replace(/<[^>]+>/g, "").trim();
+
+    // 訳語列：HTMLタグを除去してテキストだけにする
+    const meaningCell = cellMatches[1][1];
+    const meaning = meaningCell
+      .replace(/<br\s*\/?>/gi, "\n") // <br>を改行に変換
+      .replace(/<[^>]+>/g, "") // 残りのHTMLタグを除去
+      .trim();
+
+    if (!word || !meaning) continue;
+
+    results.push({ word, meaning });
+  }
+
+  // スコアリングして並び替え
+  return results
+    .map((r) => {
+      const firstLine = r.meaning.split("\n")[0];
+      let score = 1;
+      if (r.word === q)
+        score = 4; // word完全一致
+      else if (r.word.startsWith(q))
+        score = 3; // word前方一致
+      else if (firstLine.includes(q)) score = 2; // meaning先頭行にある
+      return { ...r, score };
+    })
+    .sort((a, b) => b.score - a.score);
 }
