@@ -31,6 +31,10 @@ export async function GET({ url }) {
     return await searchPtj(q, mode, lang, page);
   }
 
+  if (tab === "gotthai") {
+    return await searchGotthai(q, mode, lang, page);
+  }
+
   // 未実装のタブは空配列を返す
   return Response.json({ results: [], count: 0 });
 }
@@ -106,6 +110,66 @@ async function searchPtj(q, mode, lang, page) {
   const count = allResults.length;
 
   // 指定ページの50件だけ切り出す
+  const start = (page - 1) * PAGE_SIZE;
+  const results = allResults.slice(start, start + PAGE_SIZE);
+
+  return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
+}
+
+/**
+ * ごったい（wordsテーブル）を検索する
+ * @param {string} q - 検索ワード
+ * @param {string} mode - 検索モード（meaning / reading）
+ * @param {string} lang - 入力言語（thai / japanese / other）
+ * @param {number} page - ページ番号
+ */
+async function searchGotthai(q, mode, lang, page) {
+  // 検索対象カラムを決定する
+  // 読みモード → reading_normalized
+  // 意味モード＋タイ語 → thai
+  // 意味モード＋日本語／英語 → meaning
+  let column;
+  if (mode === "reading") {
+    column = "reading_normalized";
+  } else if (lang === "thai") {
+    column = "thai";
+  } else {
+    column = "meaning";
+  }
+
+  // wordsテーブルを全件取得（limitなし）
+  const { data, error: fetchError } = await supabase.from("words").select("id, no, url_no, thai, reading, meaning, frequency, formality").ilike(column, `%${q}%`).order("url_no", { ascending: true });
+
+  if (fetchError) {
+    return Response.json({ error: fetchError.message }, { status: 500 });
+  }
+
+  /**
+   * スコアをつける関数
+   * 3: thaiの完全一致
+   * 2: thaiの部分一致
+   * 1: meaningの部分一致
+   */
+  function calcScore(item, q) {
+    if (item.thai === q) return 3;
+    if (item.thai.includes(q)) return 2;
+    return 1;
+  }
+
+  // スコア順に並び替え
+  const allResults = data
+    .map((r) => ({ ...r, score: calcScore(r, q) }))
+    .sort((a, b) => {
+      // スコア降順 → frequency降順 → url_no昇順
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.frequency !== a.frequency) return b.frequency - a.frequency;
+      return a.url_no - b.url_no;
+    });
+
+  // 全件数
+  const count = allResults.length;
+
+  // 指定ページの件数だけ切り出す
   const start = (page - 1) * PAGE_SIZE;
   const results = allResults.slice(start, start + PAGE_SIZE);
 

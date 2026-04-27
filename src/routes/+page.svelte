@@ -186,20 +186,42 @@
       <p class="message">見つかりませんでした</p>
     {:else}
       {#each results as item}
-        <a
-          class="card"
-          href="/detail/{item.source === 'ptj_sub' ? 'sub' : 'words'}/{item.no}?q={encodeURIComponent(query)}&keyword={encodeURIComponent(item.keyword)}&lang={detectLang(query)}"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-          <div class="keyword">{@html highlight(item.keyword, query, item.score >= 3)}</div>
-          {#if item.reading}
-            <div class="reading">{item.reading}</div>
-          {/if}
-          <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-          <div class="meaning">{@html highlight(item.meaning, query, false)}</div>
-        </a>
+        {#if activeTab === "gotthai"}
+          <!-- ごったいの結果カード -->
+          <div class="card">
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <div class="keyword">{@html highlight(item.thai, query, item.score === 3)}</div>
+            {#if item.reading}
+              <div class="reading">{item.reading}</div>
+            {/if}
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <div class="meaning">{@html highlight(item.meaning, query, false)}</div>
+            <div class="meta">
+              {#if item.frequency}
+                <span class="badge">頻出度 {item.frequency}</span>
+              {/if}
+              {#if item.formality}
+                <span class="badge">フォーマル度 {item.formality}</span>
+              {/if}
+            </div>
+          </div>
+        {:else}
+          <!-- プログレッシブの結果カード -->
+          <a
+            class="card"
+            href="/detail/{item.source === 'ptj_sub' ? 'sub' : 'words'}/{item.no}?q={encodeURIComponent(query)}&keyword={encodeURIComponent(item.keyword)}&lang={detectLang(query)}"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <div class="keyword">{@html highlight(item.keyword, query, item.score >= 3)}</div>
+            {#if item.reading}
+              <div class="reading">{item.reading}</div>
+            {/if}
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <div class="meaning">{@html highlight(item.meaning, query, false)}</div>
+          </a>
+        {/if}
       {/each}
 
       <!-- ページネーション -->
@@ -215,6 +237,8 @@
 </div>
 
 <style>
+  @import url("https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap");
+
   .container {
     max-width: 680px;
     margin: 0 auto;
@@ -352,9 +376,10 @@
   }
 
   .reading {
-    font-size: 13px;
+    font-size: 16px;
     color: #888;
     margin-bottom: 4px;
+    font-family: "Times New Roman", Times, "ヒラギノ明朝 ProN", "Hiragino Mincho ProN", "YuMincho", "Yu Mincho", "メイリオ", Meiryo, "ＭＳ Ｐゴシック", serif;
   }
 
   .meaning {
@@ -429,5 +454,20 @@
   .page-info {
     font-size: 14px;
     color: #555;
+  }
+
+  /* メタ情報（頻出度・フォーマル度） */
+  .meta {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .badge {
+    font-size: 12px;
+    color: #555;
+    background: #f0f0f0;
+    border-radius: 4px;
+    padding: 2px 8px;
   }
 </style>
