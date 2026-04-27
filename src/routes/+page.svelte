@@ -12,6 +12,10 @@
   // 現在表示中の結果（アクティブタブのキャッシュを参照）
   let results = $derived(allResults[activeTab] ?? []);
 
+  // ページネーション
+  let currentPage = $state(1);
+  let totalPages = $state({ ptj: 1, gotthai: 1, nabeta: 1, thai: 1 });
+
   // 検索中フラグ
   let loading = $state(false);
 
@@ -48,22 +52,23 @@
 
     loading = true;
     searched = true;
-    results = [];
+    currentPage = 1;
 
     // 入力言語を判定
     const lang = detectLang(query);
-    // 全タブを同時に検索して件数を取得
+
     const responses = await Promise.all(
       TABS.map((tab) =>
-        fetch(`/api/search?q=${encodeURIComponent(query)}&tab=${tab.id}&mode=${searchMode}&lang=${lang}`)
+        fetch(`/api/search?q=${encodeURIComponent(query)}&tab=${tab.id}&mode=${searchMode}&lang=${lang}&page=1`)
           .then((r) => r.json())
-          .then((data) => ({ id: tab.id, count: data.count ?? 0, results: data.results ?? [] })),
+          .then((data) => ({ id: tab.id, count: data.count ?? 0, results: data.results ?? [], totalPages: data.totalPages ?? 1 })),
       ),
     );
 
-    // 件数と結果をセット（全タブ分まとめて保存）
+    // 件数・結果・総ページ数をセット（全タブ分まとめて保存）
     counts = Object.fromEntries(responses.map((r) => [r.id, r.count]));
     allResults = Object.fromEntries(responses.map((r) => [r.id, r.results]));
+    totalPages = Object.fromEntries(responses.map((r) => [r.id, r.totalPages]));
 
     loading = false;
   }
@@ -78,6 +83,26 @@
   }
 
   /**
+   * ページを切り替える
+   * @param {number} newPage - 切り替え先のページ番号
+   */
+  async function changePage(newPage) {
+    if (newPage < 1 || newPage > totalPages[activeTab]) return;
+
+    loading = true;
+    currentPage = newPage;
+
+    const lang = detectLang(query);
+    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&tab=${activeTab}&mode=${searchMode}&lang=${lang}&page=${newPage}`);
+    const data = await res.json();
+
+    // アクティブタブの結果を更新
+    allResults = { ...allResults, [activeTab]: data.results ?? [] };
+
+    loading = false;
+  }
+
+  /**
    * 検索欄をクリアする
    */
   function clearQuery() {
@@ -85,6 +110,8 @@
     allResults = { ptj: [], gotthai: [], nabeta: [], thai: [] };
     searched = false;
     counts = { ptj: null, gotthai: null, nabeta: null, thai: null };
+    totalPages = { ptj: 1, gotthai: 1, nabeta: 1, thai: 1 };
+    currentPage = 1;
     errorMessage = "";
   }
 
@@ -113,7 +140,6 @@
 <div class="container">
   <h1>タイ語辞書</h1>
 
-  <!-- 検索欄 -->
   <!-- 検索欄 -->
   <div class="search-box">
     <input type="text" placeholder="タイ語・日本語・読みで検索" bind:value={query} onkeydown={(e) => e.key === "Enter" && handleSearch()} />
@@ -175,6 +201,15 @@
           <div class="meaning">{@html highlight(item.meaning, query, false)}</div>
         </a>
       {/each}
+
+      <!-- ページネーション -->
+      {#if totalPages[activeTab] > 1}
+        <div class="pagination">
+          <button class="page-btn" onclick={() => changePage(currentPage - 1)} disabled={currentPage === 1}> ← 前へ </button>
+          <span class="page-info">{currentPage} / {totalPages[activeTab]}</span>
+          <button class="page-btn" onclick={() => changePage(currentPage + 1)} disabled={currentPage === totalPages[activeTab]}> 次へ → </button>
+        </div>
+      {/if}
     {/if}
   </div>
 </div>
@@ -359,5 +394,40 @@
   a.card:hover {
     border-color: #1a7f5a;
     cursor: pointer;
+  }
+
+  /* ページネーション */
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #e0e0e0;
+  }
+
+  .page-btn {
+    padding: 8px 16px;
+    background: #1a7f5a;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .page-btn:disabled {
+    background: #ccc;
+    cursor: default;
+  }
+
+  .page-btn:not(:disabled):hover {
+    background: #155f44;
+  }
+
+  .page-info {
+    font-size: 14px;
+    color: #555;
   }
 </style>
