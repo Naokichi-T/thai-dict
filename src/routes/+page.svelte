@@ -160,7 +160,12 @@
       <p class="message">見つかりませんでした</p>
     {:else}
       {#each results as item}
-        <div class="card">
+        <a
+          class="card"
+          href="/detail/{item.source === 'ptj_sub' ? 'sub' : 'words'}/{item.no}?q={encodeURIComponent(query)}&keyword={encodeURIComponent(item.keyword)}&lang={detectLang(query)}"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           <!-- eslint-disable-next-line svelte/no-at-html-tags -->
           <div class="keyword">{@html highlight(item.keyword, query, item.score >= 3)}</div>
           {#if item.reading}
@@ -168,7 +173,7 @@
           {/if}
           <!-- eslint-disable-next-line svelte/no-at-html-tags -->
           <div class="meaning">{@html highlight(item.meaning, query, false)}</div>
-        </div>
+        </a>
       {/each}
     {/if}
   </div>
@@ -342,5 +347,17 @@
     color: inherit;
     border-radius: 2px;
     padding: 0 1px;
+  }
+
+  /* カードをリンクにしたときの装飾リセット */
+  a.card {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  a.card:hover {
+    border-color: #1a7f5a;
+    cursor: pointer;
   }
 </style>
