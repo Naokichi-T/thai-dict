@@ -294,9 +294,6 @@
             {#if item.reading}
               <div class="reading">{item.reading}</div>
             {/if}
-            {#if item.category}
-              <div class="category">{item.category}</div>
-            {/if}
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             <div class="meaning">{@html highlight(item.meaning, query, false)}</div>
           </div>
