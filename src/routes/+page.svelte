@@ -1,4 +1,6 @@
 <script>
+  import { onMount } from "svelte";
+
   // 検索ワード
   let query = $state("");
 
@@ -83,6 +85,8 @@
    */
   function switchTab(tabId) {
     activeTab = tabId;
+    // タブをLocalStorageに保存する
+    localStorage.setItem("thai_dict_active_tab", tabId);
   }
 
   /**
@@ -124,11 +128,10 @@
    * @param {string} q - 検索ワード
    * @param {boolean} isExact - 完全一致かどうか（金色ハイライト）
    */
-  function highlight(text, q, isExact = false) {
+  function highlight(text, q) {
     if (!q || !text) return text;
     const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const className = isExact ? "highlight-exact" : "highlight";
-    return text.replace(new RegExp(escaped, "g"), `<mark class="${className}">$&</mark>`);
+    return text.replace(new RegExp(escaped, "g"), `<mark class="highlight">$&</mark>`);
   }
 
   // 入力言語を判定する関数
@@ -166,6 +169,11 @@
     // スペース・ハイフンを除いた文字が全てタイ文字ならtrue
     return /^[\u0E00-\u0E7F\s\-]+$/.test(text.trim());
   }
+
+  // マウント時にLocalStorageからタブを復元する
+  onMount(() => {
+    activeTab = localStorage.getItem("thai_dict_active_tab") ?? "ptj";
+  });
 </script>
 
 <div class="container">
@@ -222,7 +230,7 @@
           <div class="card">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             <div class="keyword-link" role="link" tabindex="0" onclick={() => window.open(item.url, "_blank")} onkeydown={(e) => e.key === "Enter" && window.open(item.url, "_blank")}>
-              {@html highlight(item.thai, query, item.score === 3)}
+              {@html highlight(item.thai, query, false)}
             </div>
             {#if item.reading}
               <div class="reading">{item.reading}</div>
@@ -242,7 +250,7 @@
           <!-- 鍋田辞書の結果カード -->
           <div class="card">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            <div class="keyword">{@html highlight(item.word, query, item.score === 3)}</div>
+            <div class="keyword">{@html highlight(item.word, query, false)}</div>
             <div class="meaning nabeta-meaning">
               {#each splitLines(item.meaning) as line}
                 {#if line.isDivider}
@@ -258,7 +266,7 @@
           <div class="card">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             <div class="keyword-link" role="link" tabindex="0" onclick={() => window.open(item.url, "_blank")} onkeydown={(e) => e.key === "Enter" && window.open(item.url, "_blank")}>
-              {@html highlight(item.word, query, item.score === 3)}
+              {@html highlight(item.word, query, false)}
             </div>
             {#if item.reading}
               <div class="reading">{item.reading}</div>
@@ -289,7 +297,7 @@
                   "_blank",
                 )}
             >
-              {@html highlight(item.keyword, query, item.score >= 3)}
+              {@html highlight(item.keyword, query, false)}
             </div>
             {#if item.reading}
               <div class="reading">{item.reading}</div>
@@ -475,17 +483,15 @@
     margin-top: 32px;
   }
 
-  /* ハイライト（部分一致）*/
-  :global(mark.highlight) {
-    background-color: #c8f0dc;
-    color: inherit;
-    border-radius: 2px;
-    padding: 0 1px;
+  /* markタグのブラウザデフォルトスタイルを上書きする */
+  :global(mark) {
+    background-color: unset;
+    color: unset;
   }
 
-  /* ハイライト（完全一致）*/
-  :global(mark.highlight-exact) {
-    background-color: #ffe066;
+  /* ハイライト */
+  :global(mark.highlight) {
+    background-color: #c8f0dc;
     color: inherit;
     border-radius: 2px;
     padding: 0 1px;

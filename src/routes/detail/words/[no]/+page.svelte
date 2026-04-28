@@ -67,9 +67,15 @@
     color: #333;
   }
 
+  /* markタグのブラウザデフォルトスタイルを上書きする */
+  :global(mark) {
+    background-color: unset;
+    color: unset;
+  }
+
   /* ハイライト */
   :global(mark.highlight) {
-    background-color: #ffe066;
+    background-color: #c8f0dc;
     color: inherit;
     border-radius: 2px;
     padding: 0 1px;
