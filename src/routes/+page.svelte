@@ -163,7 +163,7 @@
 
   <!-- 検索欄 -->
   <div class="search-box">
-    <input type="text" placeholder="タイ語・日本語・読みで検索" bind:value={query} onkeydown={(e) => e.key === "Enter" && handleSearch()} />
+    <input type="text" placeholder="タイ語・日本語・英語・読みで検索" bind:value={query} onkeydown={(e) => e.key === "Enter" && handleSearch()} />
     {#if query}
       <button class="clear-btn" onclick={clearQuery}>✕</button>
     {/if}
@@ -230,7 +230,7 @@
           <!-- 鍋田辞書の結果カード -->
           <div class="card">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            <div class="keyword">{@html highlight(item.word, query, item.score >= 2)}</div>
+            <div class="keyword">{@html highlight(item.word, query, item.score === 3)}</div>
             <div class="meaning nabeta-meaning">
               {#each splitLines(item.meaning) as line}
                 {#if line.isDivider}

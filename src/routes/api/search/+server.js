@@ -243,14 +243,16 @@ async function searchNabeta(q, mode, lang, page) {
      * 2: reading_normalizedの前方一致
      * 1: reading_normalizedの部分一致
      */
-    function calcScore(item, q) {
-      if (item.reading_normalized === q) return 3;
-      if (item.reading_normalized?.startsWith(q)) return 2;
+    function calcScoreReading(item, q) {
+      // 読みモード：reading_normalizedで比較する
+      const r = item.reading_normalized ?? "";
+      if (r === q) return 3;
+      if (r.startsWith(q)) return 2;
       return 1;
     }
 
     const allResults = data
-      .map((r) => ({ ...r, score: calcScore(r, q) }))
+      .map((r) => ({ ...r, score: calcScoreReading(r, q) }))
       .sort((a, b) => {
         // スコア降順 → frequency降順 → no昇順
         if (b.score !== a.score) return b.score - a.score;
@@ -279,13 +281,14 @@ async function searchNabeta(q, mode, lang, page) {
 
   /**
    * スコアをつける関数
-   * 3: reading_normalizedの完全一致
-   * 2: reading_normalizedの前方一致
-   * 1: reading_normalizedの部分一致
+   * 3: wordの完全一致
+   * 2: wordの前方一致
+   * 1: wordの部分一致
    */
   function calcScore(item, q) {
-    if (item.reading_normalized === q) return 3;
-    if (item.reading_normalized?.startsWith(q)) return 2;
+    // タイ語検索のときは word（タイ文字）と q を比較する
+    if (item.word === q) return 3;
+    if (item.word.startsWith(q)) return 2;
     return 1;
   }
 
@@ -372,10 +375,10 @@ function parseNabetaHtml(html, q) {
       const firstLine = r.meaning.split("\n")[0];
       let score = 1;
       if (r.word === q)
-        score = 4; // word完全一致
+        score = 3; // 完全一致
       else if (r.word.startsWith(q))
-        score = 3; // word前方一致
-      else if (firstLine.includes(q)) score = 2; // meaning先頭行にある
+        score = 2; // 前方一致
+      else if (firstLine.includes(q)) score = 1; // meaning部分一致
       return { ...r, score };
     })
     .sort((a, b) => b.score - a.score);
