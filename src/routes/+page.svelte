@@ -21,6 +21,9 @@
   // 検索中フラグ
   let loading = $state(false);
 
+  // バックグラウンド検索中フラグ（タブごと）
+  let bgLoading = $state({ ptj: false, gotthai: false, nabeta: false, thai: false });
+
   // 検索済みフラグ（初期表示で「見つかりませんでした」を出さないため）
   let searched = $state(false);
 
@@ -59,23 +62,41 @@
     searched = true;
     currentPage = 1;
 
+    // 全タブの件数・結果をリセットする
+    counts = { ptj: null, gotthai: null, nabeta: null, thai: null };
+    allResults = { ptj: [], gotthai: [], nabeta: [], thai: [] };
+    totalPages = { ptj: 1, gotthai: 1, nabeta: 1, thai: 1 };
+
     // 入力言語を判定
     const lang = detectLang(query);
 
-    const responses = await Promise.all(
-      TABS.map((tab) =>
+    // 優先タブ（LocalStorageから取得）を先に検索する
+    const priorityTab = activeTab;
+    const priorityRes = await fetch(`/api/search?q=${encodeURIComponent(query)}&tab=${priorityTab}&mode=${searchMode}&lang=${lang}&page=1`).then((r) => r.json());
+
+    // 優先タブの結果を即座に表示する
+    counts = { ...counts, [priorityTab]: priorityRes.count ?? 0 };
+    allResults = { ...allResults, [priorityTab]: priorityRes.results ?? [] };
+    totalPages = { ...totalPages, [priorityTab]: priorityRes.totalPages ?? 1 };
+    loading = false;
+
+    // 残りのタブをバックグラウンドで並列検索する
+    const otherTabs = TABS.filter((tab) => tab.id !== priorityTab);
+    bgLoading = { ...bgLoading, ...Object.fromEntries(otherTabs.map((tab) => [tab.id, true])) };
+
+    await Promise.all(
+      otherTabs.map((tab) =>
         fetch(`/api/search?q=${encodeURIComponent(query)}&tab=${tab.id}&mode=${searchMode}&lang=${lang}&page=1`)
           .then((r) => r.json())
-          .then((data) => ({ id: tab.id, count: data.count ?? 0, results: data.results ?? [], totalPages: data.totalPages ?? 1 })),
+          .then((data) => {
+            // 各タブの結果が返ってきたら件数だけ更新する
+            counts = { ...counts, [tab.id]: data.count ?? 0 };
+            allResults = { ...allResults, [tab.id]: data.results ?? [] };
+            totalPages = { ...totalPages, [tab.id]: data.totalPages ?? 1 };
+            bgLoading = { ...bgLoading, [tab.id]: false };
+          }),
       ),
     );
-
-    // 件数・結果・総ページ数をセット（全タブ分まとめて保存）
-    counts = Object.fromEntries(responses.map((r) => [r.id, r.count]));
-    allResults = Object.fromEntries(responses.map((r) => [r.id, r.results]));
-    totalPages = Object.fromEntries(responses.map((r) => [r.id, r.totalPages]));
-
-    loading = false;
   }
 
   /**
@@ -210,7 +231,9 @@
     {#each TABS as tab}
       <button class="tab {activeTab === tab.id ? 'active' : ''}" onclick={() => switchTab(tab.id)}>
         {tab.label}
-        {#if counts[tab.id] !== null}
+        {#if bgLoading[tab.id]}
+          <span class="count">(...)</span>
+        {:else if counts[tab.id] !== null}
           <span class="count">({counts[tab.id]})</span>
         {/if}
       </button>
