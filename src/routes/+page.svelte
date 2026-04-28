@@ -251,6 +251,25 @@
               {/each}
             </div>
           </div>
+        {:else if activeTab === "thai"}
+          <!-- thai-language.comの結果カード（本家サイトを別タブで開く） -->
+          <a class="card" href={item.url} target="_blank" rel="noopener noreferrer">
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <div class="keyword">{@html highlight(item.word, query, item.score === 3)}</div>
+            {#if item.reading}
+              <div class="reading">{item.reading}</div>
+            {/if}
+            {#if item.category}
+              <div class="category">{item.category}</div>
+            {/if}
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <div class="meaning">{@html highlight(item.meaning, query, false)}</div>
+            <div class="meta">
+              {#if item.frequency}
+                <span class="badge">頻出度 {item.frequency}</span>
+              {/if}
+            </div>
+          </a>
         {:else}
           <!-- プログレッシブの結果カード -->
           <a
@@ -556,6 +575,13 @@
 
   .scroll-top-btn:hover {
     background: #155f44;
+  }
+
+  /* カテゴリー */
+  .category {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 4px;
   }
 
   /* 区切り線 */

@@ -39,6 +39,10 @@ export async function GET({ url }) {
     return await searchNabeta(q, mode, lang, page);
   }
 
+  if (tab === "thai") {
+    return await searchThaiWords(q, mode, lang, page);
+  }
+
   // 未実装のタブは空配列を返す
   return Response.json({ results: [], count: 0 });
 }
@@ -382,4 +386,76 @@ function parseNabetaHtml(html, q) {
       return { ...r, score };
     })
     .sort((a, b) => b.score - a.score);
+}
+
+/**
+ * thai-language.com（thai_wordsテーブル）を検索する
+ * @param {string} q - 検索ワード
+ * @param {string} mode - 検索モード（meaning / reading）
+ * @param {string} lang - 入力言語（thai / japanese / other）
+ * @param {number} page - ページ番号
+ */
+async function searchThaiWords(q, mode, lang, page) {
+  // 検索対象カラムを決定する
+  // 読みモード               → reading_normalized
+  // 意味モード + タイ語      → word
+  // 意味モード + 日本語/英語 → meaning
+  let column;
+  if (mode === "reading") {
+    column = "reading_normalized";
+  } else if (lang === "thai") {
+    column = "word";
+  } else {
+    column = "meaning";
+  }
+
+  // thai_wordsを全件取得（limitなし）
+  const { data, error: fetchError } = await supabase
+    .from("thai_words")
+    .select("id, no, word, reading, meaning, category, url, frequency, reading_normalized")
+    .ilike(column, `%${q}%`)
+    .order("no", { ascending: true });
+
+  if (fetchError) {
+    return Response.json({ error: fetchError.message }, { status: 500 });
+  }
+
+  /**
+   * スコアをつける関数（ごったいと同じ方針）
+   * 3: 完全一致
+   * 2: 前方一致
+   * 1: 部分一致
+   */
+  function calcScore(item, q) {
+    // 読みモードのときは reading_normalized で比較する
+    if (mode === "reading") {
+      const r = item.reading_normalized ?? "";
+      if (r === q) return 3;
+      if (r.startsWith(q)) return 2;
+      return 1;
+    }
+    // 意味モードのときは word で比較する
+    if (item.word === q) return 3;
+    if (item.word.startsWith(q)) return 2;
+    return 1;
+  }
+
+  // スコア順に並び替え
+  const allResults = data
+    .map((r) => ({ ...r, score: calcScore(r, q) }))
+    .sort((a, b) => {
+      // スコア降順 → frequency降順 → no昇順
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.frequency !== a.frequency) return b.frequency - a.frequency;
+      return a.no - b.no;
+    });
+
+  // 全件数
+  const count = allResults.length;
+
+  // 指定ページの件数だけ切り出す
+  const start = (page - 1) * PAGE_SIZE;
+  const results = allResults.slice(start, start + PAGE_SIZE);
+
+  return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
 }
