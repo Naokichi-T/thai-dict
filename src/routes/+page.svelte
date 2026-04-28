@@ -28,6 +28,9 @@
   // エラーメッセージ
   let errorMessage = $state("");
 
+  // トップへ戻るボタンの表示フラグ
+  let showScrollTop = $state(false);
+
   // タブ定義
   const TABS = [
     { id: "ptj", label: "プログレッシブ" },
@@ -146,6 +149,13 @@
       isDivider: /^-+$/.test(line.trim()), // ハイフンだけの行は区切り線
       text: line,
     }));
+  }
+
+  /**
+   * スクロール量を監視してトップへ戻るボタンの表示を切り替える
+   */
+  function handleScroll() {
+    showScrollTop = window.scrollY > 200;
   }
 
   /**
@@ -271,6 +281,12 @@
     {/if}
   </div>
 </div>
+
+<!-- トップへ戻るボタン -->
+<svelte:window onscroll={handleScroll} />
+{#if showScrollTop}
+  <button class="scroll-top-btn" onclick={() => window.scrollTo({ top: 0 })}>↑</button>
+{/if}
 
 <style>
   @import url("https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap");
@@ -517,6 +533,29 @@
   .thai-line {
     font-size: 20px;
     font-family: "Sarabun", sans-serif;
+  }
+
+  /* トップへ戻るボタン */
+  .scroll-top-btn {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 44px;
+    height: 44px;
+    background: #1a7f5a;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    font-size: 20px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .scroll-top-btn:hover {
+    background: #155f44;
   }
 
   /* 区切り線 */
