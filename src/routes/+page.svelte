@@ -218,10 +218,12 @@
     {:else}
       {#each results as item}
         {#if activeTab === "gotthai"}
-          <!-- ごったいの結果カード（本家サイトを別タブで開く） -->
-          <a class="card" href={item.url} target="_blank" rel="noopener noreferrer">
+          <!-- ごったいの結果カード -->
+          <div class="card">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            <div class="keyword">{@html highlight(item.thai, query, item.score === 3)}</div>
+            <div class="keyword-link" role="link" tabindex="0" onclick={() => window.open(item.url, "_blank")} onkeydown={(e) => e.key === "Enter" && window.open(item.url, "_blank")}>
+              {@html highlight(item.thai, query, item.score === 3)}
+            </div>
             {#if item.reading}
               <div class="reading">{item.reading}</div>
             {/if}
@@ -235,7 +237,7 @@
                 <span class="badge">フォーマル度 {item.formality}</span>
               {/if}
             </div>
-          </a>
+          </div>
         {:else if activeTab === "nabeta"}
           <!-- 鍋田辞書の結果カード -->
           <div class="card">
@@ -252,10 +254,12 @@
             </div>
           </div>
         {:else if activeTab === "thai"}
-          <!-- thai-language.comの結果カード（本家サイトを別タブで開く） -->
-          <a class="card" href={item.url} target="_blank" rel="noopener noreferrer">
+          <!-- thai-language.comの結果カード -->
+          <div class="card">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            <div class="keyword">{@html highlight(item.word, query, item.score === 3)}</div>
+            <div class="keyword-link" role="link" tabindex="0" onclick={() => window.open(item.url, "_blank")} onkeydown={(e) => e.key === "Enter" && window.open(item.url, "_blank")}>
+              {@html highlight(item.word, query, item.score === 3)}
+            </div>
             {#if item.reading}
               <div class="reading">{item.reading}</div>
             {/if}
@@ -264,28 +268,35 @@
             {/if}
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             <div class="meaning">{@html highlight(item.meaning, query, false)}</div>
-            <div class="meta">
-              {#if item.frequency}
-                <span class="badge">頻出度 {item.frequency}</span>
-              {/if}
-            </div>
-          </a>
+          </div>
         {:else}
           <!-- プログレッシブの結果カード -->
-          <a
-            class="card"
-            href="/detail/{item.source === 'ptj_sub' ? 'sub' : 'words'}/{item.no}?q={encodeURIComponent(query)}&keyword={encodeURIComponent(item.keyword)}&lang={detectLang(query)}"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <div class="card">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            <div class="keyword">{@html highlight(item.keyword, query, item.score >= 3)}</div>
+            <div
+              class="keyword-link"
+              role="link"
+              tabindex="0"
+              onclick={() =>
+                window.open(
+                  `/detail/${item.source === "ptj_sub" ? "sub" : "words"}/${item.no}?q=${encodeURIComponent(query)}&keyword=${encodeURIComponent(item.keyword)}&lang=${detectLang(query)}`,
+                  "_blank",
+                )}
+              onkeydown={(e) =>
+                e.key === "Enter" &&
+                window.open(
+                  `/detail/${item.source === "ptj_sub" ? "sub" : "words"}/${item.no}?q=${encodeURIComponent(query)}&keyword=${encodeURIComponent(item.keyword)}&lang=${detectLang(query)}`,
+                  "_blank",
+                )}
+            >
+              {@html highlight(item.keyword, query, item.score >= 3)}
+            </div>
             {#if item.reading}
               <div class="reading">{item.reading}</div>
             {/if}
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             <div class="meaning">{@html highlight(item.meaning, query, false)}</div>
-          </a>
+          </div>
         {/if}
       {/each}
 
@@ -480,16 +491,18 @@
     padding: 0 1px;
   }
 
-  /* カードをリンクにしたときの装飾リセット */
-  a.card {
-    display: block;
-    color: inherit;
-    text-decoration: none;
+  /* 見出し語リンク */
+  .keyword-link {
+    display: inline-block;
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 4px;
+    color: #1a6fb5;
+    cursor: pointer;
   }
 
-  a.card:hover {
-    border-color: #1a7f5a;
-    cursor: pointer;
+  .keyword-link:hover {
+    text-decoration: underline;
   }
 
   /* ページネーション */
