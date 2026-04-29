@@ -31,7 +31,7 @@
   <section>
     <h2>読みの検索について</h2>
     <p>ごったいとほぼ同じですが多少不便です。発音記号そのままでは検索できないので次のように読み替えてください。</p>
-    <p class="convert">ʉ → u, ə → e, ɛ → e, ɔ → o, ŋ → ng</p>
+    <p class="convert">ʉ → u, ə → u, ɛ → e, ɔ → o, ŋ → ng</p>
     <p>例：ชื่อ（chʉ̂ʉ → chuu）、พ่อแม่（phɔ̂ɔmɛ̂ɛ → phoomee）、เงิน（ŋən → ngun）</p>
     <p>また、一部表記ゆれを許容しています。</p>
     <p class="convert">y → i, w → o, ng → n</p>
