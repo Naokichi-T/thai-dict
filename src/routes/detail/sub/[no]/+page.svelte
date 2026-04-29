@@ -40,7 +40,8 @@
     max-width: 680px;
     margin: 0 auto;
     padding: 24px 16px;
-    font-family: "Times New Roman", Times, "ヒラギノ明朝 ProN", "Hiragino Mincho ProN", "YuMincho", "Yu Mincho", "メイリオ", Meiryo, "ＭＳ Ｐゴシック", serif;
+    /* font-family: "Times New Roman", Times, "ヒラギノ明朝 ProN", "Hiragino Mincho ProN", "YuMincho", "Yu Mincho", "メイリオ", Meiryo, "ＭＳ Ｐゴシック", serif; */
+    font-family: Arial, Helvetica, sans-serif;
   }
 
   .header {
