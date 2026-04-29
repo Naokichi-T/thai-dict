@@ -430,10 +430,10 @@ async function searchThaiWords(q, mode, lang, page) {
       const rNorm = normalizeReading(r);
 
       if (r === q) return 6;
-      if (r.startsWith(q)) return 5;
-      if (r.includes(q)) return 4;
-      if (rNorm === q) return 3;
-      if (rNorm.startsWith(q)) return 2;
+      if (rNorm === q) return 5;
+      if (r.startsWith(q)) return 4;
+      if (rNorm.startsWith(q)) return 3;
+      if (r.includes(q)) return 2;
       if (rNorm.includes(q)) return 1;
       return null;
     }

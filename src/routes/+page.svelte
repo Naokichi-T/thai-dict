@@ -291,11 +291,21 @@
             <div class="keyword-link" role="link" tabindex="0" onclick={() => window.open(item.url, "_blank")} onkeydown={(e) => e.key === "Enter" && window.open(item.url, "_blank")}>
               {@html highlight(item.word, query, false)}
             </div>
-            {#if item.reading}
-              <div class="reading">{item.reading}</div>
-            {/if}
-            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            <div class="meaning">{@html highlight(item.meaning, query, false)}</div>
+            <!-- meaningはJSON形式なのでパースして表示する -->
+            {#each (() => {
+              try {
+                return JSON.parse(item.meaning);
+              } catch {
+                return [];
+              }
+            })() as entry}
+              <div class="meaning">
+                {#if entry.category}
+                  <span class="category">{entry.category}</span>
+                {/if}
+                {@html highlight(entry.meaning, query, false)}
+              </div>
+            {/each}
           </div>
         {:else}
           <!-- プログレッシブの結果カード -->
