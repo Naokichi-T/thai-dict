@@ -306,7 +306,7 @@
                 return [];
               }
             })() as entry}
-              <div class="meaning">
+              <div class="meaning thai-meaning">
                 {#if entry.category}
                   <span class="category">{entry.category}</span>
                 {/if}
@@ -690,6 +690,12 @@
     font-size: 12px;
     color: #888;
     margin-bottom: 4px;
+  }
+
+  /* thai-languageのmeaning（他辞書より大きく表示） */
+  .thai-meaning {
+    font-size: 16px;
+    color: #333;
   }
 
   /* 区切り線 */
