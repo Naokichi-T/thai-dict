@@ -442,6 +442,10 @@
     border-radius: 8px;
   }
 
+  .search-box input::placeholder {
+    font-size: 13px;
+  }
+
   .clear-btn {
     position: absolute;
     right: 76px;
