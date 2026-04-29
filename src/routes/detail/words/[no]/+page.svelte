@@ -15,7 +15,10 @@
    * @param {string} q - 検索ワード
    */
   function highlightInHtml(html, q) {
-    if (!q || !html) return html;
+    if (!html) return html;
+    // ⇒見出し などの内部リンク（/thjaword/...）を無効化する
+    html = html.replace(/<a\s+href="\/thjaword\/[^"]*"[^>]*>(.*?)<\/a>/g, "$1");
+    if (!q) return html;
     const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return html.replace(new RegExp(escaped, "g"), `<mark class="highlight">$&</mark>`);
   }
