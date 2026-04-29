@@ -36,6 +36,9 @@
   // トップへ戻るボタンの表示フラグ
   let showScrollTop = $state(false);
 
+  // 既読フラグをLocalStorageから取得する（SSR対策でonMount内で取得）
+  let helpRead = $state(true);
+
   // タブ定義
   const TABS = [
     { id: "ptj", label: "プログレッシブ" },
@@ -191,14 +194,18 @@
     return /^[\u0E00-\u0E7F\s\-]+$/.test(text.trim());
   }
 
-  // マウント時にLocalStorageからタブを復元する
+  // マウント時にLocalStorageからタブと既読フラグを復元する
   onMount(() => {
     activeTab = localStorage.getItem("thai_dict_active_tab") ?? "ptj";
+    helpRead = localStorage.getItem("thai_dict_help_read") === "true";
   });
 </script>
 
 <div class="container">
-  <h1>タイ語辞書</h1>
+  <div class="title-row">
+    <h1>タイ語辞書</h1>
+    <a href="/help" class="help-link {helpRead ? 'read' : 'unread'}">使い方</a>
+  </div>
 
   <!-- 検索欄 -->
   <div class="search-box">
@@ -368,7 +375,55 @@
 
   h1 {
     font-size: 24px;
+    margin-bottom: 0;
+  }
+
+  /* タイトル行（タイトル＋使い方リンク） */
+  .title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-bottom: 16px;
+  }
+
+  /* 使い方リンク */
+  .help-link {
+    font-size: 13px;
+    text-decoration: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+  }
+
+  /* 未読：オレンジ＋ぷるぷるアニメーション */
+  .help-link.unread {
+    color: white;
+    background: #e07b00;
+    animation: wobble 1.2s ease-in-out infinite;
+  }
+
+  /* 既読：グレー */
+  .help-link.read {
+    color: #888;
+    background: #f0f0f0;
+  }
+
+  @keyframes wobble {
+    0%,
+    100% {
+      transform: rotate(0deg);
+    }
+    20% {
+      transform: rotate(-6deg);
+    }
+    40% {
+      transform: rotate(6deg);
+    }
+    60% {
+      transform: rotate(-4deg);
+    }
+    80% {
+      transform: rotate(4deg);
+    }
   }
 
   /* 検索欄 */
