@@ -67,7 +67,7 @@
     currentPage = 1;
 
     // 全タブの件数・結果をリセットする
-    counts = { ptj: null, gotthai: null, nabeta: null, thai: null };
+    counts = { ptj: null, gotthai: null, nabeta: null, pdic: null, thai: null };
     allResults = { ptj: [], gotthai: [], nabeta: [], thai: [] };
     totalPages = { ptj: 1, gotthai: 1, nabeta: 1, thai: 1 };
 
