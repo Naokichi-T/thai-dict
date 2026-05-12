@@ -116,15 +116,18 @@ async function searchPtj(q, mode, lang, page) {
 
       const r = item.reading_normalized ?? "";
       const rNorm = normalizeReading(r);
+      const arr = item.reading_normalized_arr ?? [];
 
-      // 正規化なしで完全一致・前方一致・部分一致 → 高スコア
-      if (r === q) return isWords ? 6 : 4;
-      if (r.startsWith(q)) return isWords ? 5 : 3;
-      if (r.includes(q)) return isWords ? 4 : 2;
-      // 正規化後に完全一致・前方一致・部分一致 → 低スコア
-      if (rNorm === q) return isWords ? 3 : 1;
-      if (rNorm.startsWith(q)) return isWords ? 2 : 0;
-      if (rNorm.includes(q)) return isWords ? 1 : -1;
+      // 完全一致（正規化なし・正規化後・arr内）→ 最高スコア
+      if (r === q || rNorm === q || arr.includes(q)) return isWords ? 6 : 4;
+      // 前方一致（正規化なし・正規化後）
+      if (r.startsWith(q) || rNorm.startsWith(q)) return isWords ? 5 : 3;
+      // 部分一致（正規化なし・正規化後）
+      if (r.includes(q) || rNorm.includes(q)) return isWords ? 4 : 2;
+      // arr内 前方一致
+      if (arr.some((a) => a.startsWith(q))) return isWords ? 3 : 1;
+      // arr内 部分一致
+      if (arr.some((a) => a.includes(q))) return isWords ? 2 : 0;
       return null; // どれにも一致しない → 除外
     }
 
