@@ -287,7 +287,8 @@
                 {#if line.isDivider}
                   <hr class="divider" />
                 {:else}
-                  <span class:thai-line={isThai(line.text)}>{line.text}</span><br />
+                  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                  <span class:thai-line={isThai(line.text)}>{@html highlight(line.text, query)}</span><br />
                 {/if}
               {/each}
             </div>

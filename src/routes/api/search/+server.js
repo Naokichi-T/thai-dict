@@ -21,9 +21,11 @@ function normalizeReading(q) {
 
 export async function GET({ url }) {
   // クエリパラメータを取得
-  const q = url.searchParams.get("q")?.trim() ?? "";
+  const qRaw = url.searchParams.get("q")?.trim() ?? "";
+  // 読みモードのときはスペースを除去する（reading_normalizedがスペースなしのため）
+  const mode = url.searchParams.get("mode") ?? "meaning";
+  const q = mode === "reading" ? qRaw.replace(/ /g, "") : qRaw;
   const tab = url.searchParams.get("tab") ?? "ptj";
-  const mode = url.searchParams.get("mode") ?? "meaning"; // meaning / reading
   const lang = url.searchParams.get("lang") ?? "other"; // thai / japanese / other
   const page = parseInt(url.searchParams.get("page") ?? "1"); // ページ番号（1始まり）
 
@@ -243,9 +245,41 @@ async function searchGotthai(q, mode, lang, page) {
  * @param {number} page - ページ番号
  */
 async function searchNabeta(q, mode, lang, page) {
-  // 日本語／英語の意味検索は本家サイトをスクレイピング
+  // 日本語／英語の意味検索はnabeta_words.meaningを検索する
   if (mode === "meaning" && lang !== "thai") {
-    return await scrapeNabeta(q, page);
+    const { data, error: fetchError } = await supabase
+      .from("nabeta_words")
+      .select("id, no, word, meaning, reading, reading_normalized, frequency")
+      .ilike("meaning", `%${q}%`)
+      .order("no", { ascending: true });
+
+    if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
+
+    /**
+     * スコアをつける関数
+     * 3: wordの完全一致
+     * 2: wordの前方一致
+     * 1: meaningの部分一致
+     */
+    function calcScoreMeaning(item) {
+      if (item.word === q) return 3;
+      if (item.word.startsWith(q)) return 2;
+      return 1;
+    }
+
+    const allResults = (data ?? [])
+      .map((r) => ({ ...r, score: calcScoreMeaning(r) }))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.frequency !== a.frequency) return b.frequency - a.frequency;
+        return a.no - b.no;
+      });
+
+    const count = allResults.length;
+    const start = (page - 1) * PAGE_SIZE;
+    const results = allResults.slice(start, start + PAGE_SIZE);
+
+    return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
   }
 
   if (mode === "reading") {
