@@ -510,8 +510,8 @@ async function searchPdic(q, mode, lang, page) {
   let abbrData = [];
 
   if (mode === "reading") {
-    // 読みモード：reading の部分一致
-    const { data, error } = await supabase.from("pdic_words").select("id, no, word, reading, meaning, sample, frequency").ilike("reading", `%${q}%`).order("no", { ascending: true });
+    // 読みモード：reading_normalized で RPC 関数を使って検索する
+    const { data, error } = await supabase.rpc("search_pdic_by_reading", { q });
     if (error) return Response.json({ error: error.message }, { status: 500 });
     wordsData = data ?? [];
   } else if (lang === "thai") {
@@ -551,10 +551,20 @@ async function searchPdic(q, mode, lang, page) {
    */
   function calcScore(item) {
     if (mode === "reading") {
-      const r = item.reading ?? "";
-      if (r === q) return 3;
-      if (r.startsWith(q)) return 2;
-      return 1;
+      const r = item.reading_normalized ?? "";
+      const rNorm = normalizeReading(r);
+      const arr = item.reading_normalized_arr ?? [];
+
+      // 完全一致（正規化なし・正規化後・arr内）→ 最高スコア
+      if (r === q || rNorm === q || arr.includes(q)) return 4;
+      // 前方一致
+      if (r.startsWith(q) || rNorm.startsWith(q)) return 3;
+      // 部分一致
+      if (r.includes(q) || rNorm.includes(q)) return 2;
+      // arr内 前方一致・部分一致
+      if (arr.some((a) => a.startsWith(q))) return 1;
+      if (arr.some((a) => a.includes(q))) return 0;
+      return null;
     }
     if (lang === "thai") {
       if (item.word === q) return 4;
