@@ -172,9 +172,10 @@
    * @param {string} text - 対象テキスト
    */
   function splitLines(text) {
-    // 各行を「テキスト行」か「区切り線」かを判定してオブジェクトの配列にする
+    // text が null/undefined の場合は空配列を返す
+    if (!text) return [];
     return text.split("\n").map((line) => ({
-      isDivider: /^-+$/.test(line.trim()), // ハイフンだけの行は区切り線
+      isDivider: /^-+$/.test(line.trim()),
       text: line,
     }));
   }
