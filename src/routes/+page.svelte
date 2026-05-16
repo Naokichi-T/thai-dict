@@ -280,18 +280,34 @@
         {:else if activeTab === "nabeta"}
           <!-- 鍋田辞書の結果カード -->
           <div class="card">
-            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            <div class="keyword">{@html highlight(item.word, query, false)}</div>
-            <div class="meaning nabeta-meaning">
-              {#each splitLines(item.meaning) as line}
-                {#if line.isDivider}
-                  <hr class="divider" />
-                {:else}
-                  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                  <span class:thai-line={isThai(line.text)}>{@html highlight(line.text, query)}</span><br />
-                {/if}
-              {/each}
-            </div>
+            {#if item.source === "nabeta_jp"}
+              <!-- 日本語→タイ語カード -->
+              <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+              <div class="keyword">{@html highlight(item.keyword, query)}</div>
+              <div class="meaning nabeta-meaning">
+                {#each splitLines(item.content) as line}
+                  {#if line.isDivider}
+                    <hr class="divider" />
+                  {:else}
+                    <span class:thai-line={isThai(line.text)}>{line.text}</span><br />
+                  {/if}
+                {/each}
+              </div>
+            {:else}
+              <!-- タイ語→日本語カード（既存） -->
+              <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+              <div class="keyword">{@html highlight(item.word, query, false)}</div>
+              <div class="meaning nabeta-meaning">
+                {#each splitLines(item.meaning) as line}
+                  {#if line.isDivider}
+                    <hr class="divider" />
+                  {:else}
+                    <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                    <span class:thai-line={isThai(line.text)}>{@html highlight(line.text, query)}</span><br />
+                  {/if}
+                {/each}
+              </div>
+            {/if}
           </div>
         {:else if activeTab === "pdic"}
           <!-- PDICの結果カード -->
