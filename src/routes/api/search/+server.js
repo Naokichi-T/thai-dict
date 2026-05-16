@@ -21,9 +21,11 @@ function normalizeReading(q) {
 
 export async function GET({ url }) {
   // クエリパラメータを取得
-  const q = url.searchParams.get("q")?.trim() ?? "";
+  const qRaw = url.searchParams.get("q")?.trim() ?? "";
+  // 読みモードのときはスペースを除去する（reading_normalizedがスペースなしのため）
+  const mode = url.searchParams.get("mode") ?? "meaning";
+  const q = mode === "reading" ? qRaw.replace(/ /g, "") : qRaw;
   const tab = url.searchParams.get("tab") ?? "ptj";
-  const mode = url.searchParams.get("mode") ?? "meaning"; // meaning / reading
   const lang = url.searchParams.get("lang") ?? "other"; // thai / japanese / other
   const page = parseInt(url.searchParams.get("page") ?? "1"); // ページ番号（1始まり）
 
@@ -43,6 +45,10 @@ export async function GET({ url }) {
 
   if (tab === "nabeta") {
     return await searchNabeta(q, mode, lang, page);
+  }
+
+  if (tab === "pdic") {
+    return await searchPdic(q, mode, lang, page);
   }
 
   if (tab === "thai") {
@@ -112,15 +118,18 @@ async function searchPtj(q, mode, lang, page) {
 
       const r = item.reading_normalized ?? "";
       const rNorm = normalizeReading(r);
+      const arr = item.reading_normalized_arr ?? [];
 
-      // 正規化なしで完全一致・前方一致・部分一致 → 高スコア
-      if (r === q) return isWords ? 6 : 4;
-      if (r.startsWith(q)) return isWords ? 5 : 3;
-      if (r.includes(q)) return isWords ? 4 : 2;
-      // 正規化後に完全一致・前方一致・部分一致 → 低スコア
-      if (rNorm === q) return isWords ? 3 : 1;
-      if (rNorm.startsWith(q)) return isWords ? 2 : 0;
-      if (rNorm.includes(q)) return isWords ? 1 : -1;
+      // 完全一致（正規化なし・正規化後・arr内）→ 最高スコア
+      if (r === q || rNorm === q || arr.includes(q)) return isWords ? 6 : 4;
+      // 前方一致（正規化なし・正規化後）
+      if (r.startsWith(q) || rNorm.startsWith(q)) return isWords ? 5 : 3;
+      // 部分一致（正規化なし・正規化後）
+      if (r.includes(q) || rNorm.includes(q)) return isWords ? 4 : 2;
+      // arr内 前方一致
+      if (arr.some((a) => a.startsWith(q))) return isWords ? 3 : 1;
+      // arr内 部分一致
+      if (arr.some((a) => a.includes(q))) return isWords ? 2 : 0;
       return null; // どれにも一致しない → 除外
     }
 
@@ -236,9 +245,41 @@ async function searchGotthai(q, mode, lang, page) {
  * @param {number} page - ページ番号
  */
 async function searchNabeta(q, mode, lang, page) {
-  // 日本語／英語の意味検索は本家サイトをスクレイピング
+  // 日本語／英語の意味検索はnabeta_words.meaningを検索する
   if (mode === "meaning" && lang !== "thai") {
-    return await scrapeNabeta(q, page);
+    const { data, error: fetchError } = await supabase
+      .from("nabeta_words")
+      .select("id, no, word, meaning, reading, reading_normalized, frequency")
+      .ilike("meaning", `%${q}%`)
+      .order("no", { ascending: true });
+
+    if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
+
+    /**
+     * スコアをつける関数
+     * 3: wordの完全一致
+     * 2: wordの前方一致
+     * 1: meaningの部分一致
+     */
+    function calcScoreMeaning(item) {
+      if (item.word === q) return 3;
+      if (item.word.startsWith(q)) return 2;
+      return 1;
+    }
+
+    const allResults = (data ?? [])
+      .map((r) => ({ ...r, score: calcScoreMeaning(r) }))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.frequency !== a.frequency) return b.frequency - a.frequency;
+        return a.no - b.no;
+      });
+
+    const count = allResults.length;
+    const start = (page - 1) * PAGE_SIZE;
+    const results = allResults.slice(start, start + PAGE_SIZE);
+
+    return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
   }
 
   if (mode === "reading") {
@@ -448,6 +489,88 @@ async function searchThaiWords(q, mode, lang, page) {
     .filter((r) => r.score !== null)
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
+      if (b.frequency !== a.frequency) return b.frequency - a.frequency;
+      return a.no - b.no;
+    });
+
+  const count = allResults.length;
+  const start = (page - 1) * PAGE_SIZE;
+  const results = allResults.slice(start, start + PAGE_SIZE);
+
+  return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
+}
+
+/**
+ * PDIC辞書（pdic_words + pdic_abbr）を検索する
+ * タイ語入力 → 両テーブルを検索してマージ
+ * 日本語入力 → pdic_words.meaning のみ
+ * 読みモード → pdic_words.reading のみ
+ * @param {string} q - 検索ワード
+ * @param {string} mode - 検索モード（meaning / reading）
+ * @param {string} lang - 入力言語（thai / japanese / other）
+ * @param {number} page - ページ番号
+ */
+async function searchPdic(q, mode, lang, page) {
+  let wordsData = [];
+  let abbrData = [];
+
+  if (mode === "reading") {
+    // 読みモード：reading の部分一致
+    const { data, error } = await supabase.from("pdic_words").select("id, no, word, reading, meaning, frequency").ilike("reading", `%${q}%`).order("no", { ascending: true });
+    if (error) return Response.json({ error: error.message }, { status: 500 });
+    wordsData = data ?? [];
+  } else if (lang === "thai") {
+    // タイ語入力：pdic_words.word + pdic_abbr.word を両方検索
+    const [wordsRes, abbrRes] = await Promise.all([
+      supabase.from("pdic_words").select("id, no, word, reading, meaning, frequency").ilike("word", `%${q}%`).order("no", { ascending: true }),
+      supabase.from("pdic_abbr").select("id, no, word, full_word").ilike("word", `%${q}%`).order("no", { ascending: true }),
+    ]);
+    if (wordsRes.error) return Response.json({ error: wordsRes.error.message }, { status: 500 });
+    if (abbrRes.error) return Response.json({ error: abbrRes.error.message }, { status: 500 });
+    wordsData = wordsRes.data ?? [];
+    abbrData = abbrRes.data ?? [];
+  } else {
+    // 日本語／英語入力：pdic_words.meaning のみ
+    const { data, error } = await supabase.from("pdic_words").select("id, no, word, reading, meaning, frequency").ilike("meaning", `%${q}%`).order("no", { ascending: true });
+    if (error) return Response.json({ error: error.message }, { status: 500 });
+    wordsData = data ?? [];
+  }
+
+  /**
+   * スコアをつける関数
+   * 意味モード（タイ語）:
+   *   4: word の完全一致
+   *   3: word の前方一致
+   *   2: word の部分一致
+   * 意味モード（日本語）:
+   *   1: meaning の部分一致
+   * 読みモード:
+   *   3: reading の完全一致
+   *   2: reading の前方一致
+   *   1: reading の部分一致
+   */
+  function calcScore(item) {
+    if (mode === "reading") {
+      const r = item.reading ?? "";
+      if (r === q) return 3;
+      if (r.startsWith(q)) return 2;
+      return 1;
+    }
+    if (lang === "thai") {
+      if (item.word === q) return 4;
+      if (item.word.startsWith(q)) return 3;
+      return 2;
+    }
+    // 日本語／英語
+    return 1;
+  }
+
+  // pdic_words と pdic_abbr をマージしてスコアをつける
+  const allResults = [...wordsData.map((r) => ({ ...r, source: "pdic_words" })), ...abbrData.map((r) => ({ ...r, source: "pdic_abbr", frequency: 0 }))]
+    .map((r) => ({ ...r, score: calcScore(r) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      // frequency 降順（0は最後）
       if (b.frequency !== a.frequency) return b.frequency - a.frequency;
       return a.no - b.no;
     });

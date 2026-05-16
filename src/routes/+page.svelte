@@ -8,21 +8,21 @@
   let activeTab = $state("ptj");
 
   // 各タブの検索結果と件数（全タブ分キャッシュする）
-  let allResults = $state({ ptj: [], gotthai: [], nabeta: [], thai: [] });
-  let counts = $state({ ptj: null, gotthai: null, nabeta: null, thai: null });
+  let allResults = $state({ ptj: [], gotthai: [], nabeta: [], pdic: [], thai: [] });
+  let counts = $state({ ptj: null, gotthai: null, nabeta: null, pdic: null, thai: null });
 
   // 現在表示中の結果（アクティブタブのキャッシュを参照）
   let results = $derived(allResults[activeTab] ?? []);
 
   // ページネーション
   let currentPage = $state(1);
-  let totalPages = $state({ ptj: 1, gotthai: 1, nabeta: 1, thai: 1 });
+  let totalPages = $state({ ptj: 1, gotthai: 1, nabeta: 1, pdic: 1, thai: 1 });
 
   // 検索中フラグ
   let loading = $state(false);
 
   // バックグラウンド検索中フラグ（タブごと）
-  let bgLoading = $state({ ptj: false, gotthai: false, nabeta: false, thai: false });
+  let bgLoading = $state({ ptj: false, gotthai: false, nabeta: false, pdic: false, thai: false });
 
   // 検索済みフラグ（初期表示で「見つかりませんでした」を出さないため）
   let searched = $state(false);
@@ -41,10 +41,11 @@
 
   // タブ定義
   const TABS = [
-    { id: "ptj", label: "プログレッシブ" },
+    { id: "ptj", label: "プログレ" },
     { id: "gotthai", label: "ごったい" },
     { id: "nabeta", label: "鍋田" },
-    { id: "thai", label: "thai-language" },
+    { id: "pdic", label: "PDIC" },
+    { id: "thai", label: "ThaiLang" },
   ];
 
   /**
@@ -66,7 +67,7 @@
     currentPage = 1;
 
     // 全タブの件数・結果をリセットする
-    counts = { ptj: null, gotthai: null, nabeta: null, thai: null };
+    counts = { ptj: null, gotthai: null, nabeta: null, pdic: null, thai: null };
     allResults = { ptj: [], gotthai: [], nabeta: [], thai: [] };
     totalPages = { ptj: 1, gotthai: 1, nabeta: 1, thai: 1 };
 
@@ -138,10 +139,10 @@
    */
   function clearQuery() {
     query = "";
-    allResults = { ptj: [], gotthai: [], nabeta: [], thai: [] };
+    allResults = { ptj: [], gotthai: [], nabeta: [], pdic: [], thai: [] };
     searched = false;
-    counts = { ptj: null, gotthai: null, nabeta: null, thai: null };
-    totalPages = { ptj: 1, gotthai: 1, nabeta: 1, thai: 1 };
+    counts = { ptj: null, gotthai: null, nabeta: null, pdic: null, thai: null };
+    totalPages = { ptj: 1, gotthai: 1, nabeta: 1, pdic: 1, thai: 1 };
     currentPage = 1;
     errorMessage = "";
   }
@@ -286,9 +287,28 @@
                 {#if line.isDivider}
                   <hr class="divider" />
                 {:else}
-                  <span class:thai-line={isThai(line.text)}>{line.text}</span><br />
+                  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                  <span class:thai-line={isThai(line.text)}>{@html highlight(line.text, query)}</span><br />
                 {/if}
               {/each}
+            </div>
+          </div>
+        {:else if activeTab === "pdic"}
+          <!-- PDICの結果カード -->
+          <div class="card">
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <div class="keyword">{@html highlight(item.source === "pdic_abbr" ? item.word : item.word, query)}</div>
+            {#if item.source === "pdic_words" && item.reading}
+              <div class="reading">{item.reading}</div>
+            {/if}
+            <div class="meaning">
+              {#if item.source === "pdic_abbr"}
+                <!-- 略語の場合はフルネームを表示 -->
+                <span class="abbr-label">略語</span><span class="abbr-full">{item.full_word}</span>
+              {:else}
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                {@html highlight(item.meaning, query)}
+              {/if}
             </div>
           </div>
         {:else if activeTab === "thai"}
@@ -703,5 +723,20 @@
     border: none;
     border-top: 1px solid #e0e0e0;
     margin: 8px 0;
+  }
+
+  /* PDIC略語ラベル */
+  .abbr-label {
+    font-size: 11px;
+    color: white;
+    background: #888;
+    border-radius: 3px;
+    padding: 1px 6px;
+    margin-right: 6px;
+  }
+
+  /* PDIC略語のフルネーム（タイ文字なので大きく表示） */
+  .abbr-full {
+    font-size: 20px;
   }
 </style>
