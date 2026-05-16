@@ -511,22 +511,27 @@ async function searchPdic(q, mode, lang, page) {
 
   if (mode === "reading") {
     // 読みモード：reading の部分一致
-    const { data, error } = await supabase.from("pdic_words").select("id, no, word, reading, meaning, frequency").ilike("reading", `%${q}%`).order("no", { ascending: true });
+    const { data, error } = await supabase.from("pdic_words").select("id, no, word, reading, meaning, sample, frequency").ilike("reading", `%${q}%`).order("no", { ascending: true });
     if (error) return Response.json({ error: error.message }, { status: 500 });
     wordsData = data ?? [];
   } else if (lang === "thai") {
     // タイ語入力：pdic_words.word + pdic_abbr.word を両方検索
     const [wordsRes, abbrRes] = await Promise.all([
-      supabase.from("pdic_words").select("id, no, word, reading, meaning, frequency").ilike("word", `%${q}%`).order("no", { ascending: true }),
+      supabase.from("pdic_words").select("id, no, word, reading, meaning, sample, frequency").ilike("word", `%${q}%`).order("no", { ascending: true }),
       supabase.from("pdic_abbr").select("id, no, word, full_word").ilike("word", `%${q}%`).order("no", { ascending: true }),
     ]);
     if (wordsRes.error) return Response.json({ error: wordsRes.error.message }, { status: 500 });
     if (abbrRes.error) return Response.json({ error: abbrRes.error.message }, { status: 500 });
     wordsData = wordsRes.data ?? [];
     abbrData = abbrRes.data ?? [];
+  } else if (lang === "japanese") {
+    // 日本語入力：pdic_ja_words.disp を検索する
+    const { data, error } = await supabase.from("pdic_ja_words").select("id, no, disp, trans, phone").ilike("disp", `%${q}%`).order("no", { ascending: true });
+    if (error) return Response.json({ error: error.message }, { status: 500 });
+    wordsData = data ?? [];
   } else {
-    // 日本語／英語入力：pdic_words.meaning のみ
-    const { data, error } = await supabase.from("pdic_words").select("id, no, word, reading, meaning, frequency").ilike("meaning", `%${q}%`).order("no", { ascending: true });
+    // 英語入力：pdic_words.sample を検索する
+    const { data, error } = await supabase.from("pdic_words").select("id, no, word, reading, meaning, sample, frequency").ilike("sample", `%${q}%`).order("no", { ascending: true });
     if (error) return Response.json({ error: error.message }, { status: 500 });
     wordsData = data ?? [];
   }
@@ -556,12 +561,17 @@ async function searchPdic(q, mode, lang, page) {
       if (item.word.startsWith(q)) return 3;
       return 2;
     }
-    // 日本語／英語
+    // 日本語／英語：dispでスコアリングする
+    if (item.disp === q) return 3;
+    if (item.disp?.startsWith(q)) return 2;
     return 1;
   }
 
-  // pdic_words と pdic_abbr をマージしてスコアをつける
-  const allResults = [...wordsData.map((r) => ({ ...r, source: "pdic_words" })), ...abbrData.map((r) => ({ ...r, source: "pdic_abbr", frequency: 0 }))]
+  // pdic_words・pdic_ja_words・pdic_abbr をマージしてスコアをつける
+  const allResults = [
+    ...wordsData.map((r) => ({ ...r, source: lang === "japanese" && mode !== "reading" ? "pdic_ja_words" : "pdic_words" })),
+    ...abbrData.map((r) => ({ ...r, source: "pdic_abbr", frequency: 0 })),
+  ]
     .map((r) => ({ ...r, score: calcScore(r) }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;

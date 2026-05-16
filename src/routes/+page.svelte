@@ -313,7 +313,7 @@
           <!-- PDICの結果カード -->
           <div class="card">
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-            <div class="keyword">{@html highlight(item.source === "pdic_abbr" ? item.word : item.word, query)}</div>
+            <div class="keyword">{@html highlight(item.source === "pdic_abbr" ? item.word : (item.disp ?? item.word), query)}</div>
             {#if item.source === "pdic_words" && item.reading}
               <div class="reading">{item.reading}</div>
             {/if}
@@ -321,9 +321,19 @@
               {#if item.source === "pdic_abbr"}
                 <!-- 略語の場合はフルネームを表示 -->
                 <span class="abbr-label">略語</span><span class="abbr-full">{item.full_word}</span>
+              {:else if item.source === "pdic_ja_words"}
+                <!-- 日→タイ辞書の場合はtransとphoneを表示 -->
+                <span class="thai-line">{@html highlight(item.trans ?? "", query)}</span>
+                {#if item.phone}
+                  <div class="reading">{item.phone}</div>
+                {/if}
               {:else}
                 <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                 {@html highlight(item.meaning, query)}
+                {#if item.sample}
+                  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                  <div class="reading">{@html highlight(item.sample, query)}</div>
+                {/if}
               {/if}
             </div>
           </div>
