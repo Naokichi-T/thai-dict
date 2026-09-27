@@ -243,10 +243,14 @@ async function searchGotthai(q, mode, lang, page) {
    *   2: 前方一致（正規化後）
    *   1: 部分一致（正規化後）
    *   null: どれにも一致しない → 除外
-   * 意味モード：
+   * 意味モード（タイ語入力）：
    *   3: thaiの完全一致
    *   2: thaiの部分一致
-   *   1: meaningの部分一致
+   *   1: それ以外
+   * 意味モード（日本語・英語入力）：meaning を半角カンマで1語ずつに分けて比べる
+   *   3: どれかの語と完全一致（例：「性」で検索 → "性,性別" の「性」）
+   *   2: どれかの語が検索ワードで始まる（例：「性」で検索 → "性器" の「性器」）
+   *   1: それ以外の部分一致（例：「性」で検索 → "私[男性],僕" の「私[男性]」）
    */
   function calcScore(item) {
     if (mode === "reading") {
@@ -262,8 +266,28 @@ async function searchGotthai(q, mode, lang, page) {
       return null;
     }
 
-    if (item.thai === q) return 3;
-    if (item.thai.includes(q)) return 2;
+    // タイ語入力：thai（見出し語）で比べる（今まで通り）
+    if (lang === "thai") {
+      if (item.thai === q) return 3;
+      if (item.thai.includes(q)) return 2;
+      return 1;
+    }
+
+    // 日本語・英語入力：meaning を半角カンマで区切って、語のリストにする
+    // 例："性,性別" → ["性", "性別"]
+    // ※「、」「，」は「２、３日前」のように語の中で使われているので区切りにしない
+    const terms = (item.meaning ?? "")
+      .split(",")
+      // 前後の空白を取り除く
+      .map((term) => term.trim())
+      // 空になった語は捨てる
+      .filter((term) => term !== "");
+
+    // どれかの語と完全一致 → 最上位
+    if (terms.includes(q)) return 3;
+    // どれかの語が検索ワードで始まる → 中間
+    if (terms.some((term) => term.startsWith(q))) return 2;
+    // それ以外（語の途中に含まれているだけ）
     return 1;
   }
 
