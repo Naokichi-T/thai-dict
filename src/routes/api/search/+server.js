@@ -57,6 +57,65 @@ function normalizeReading(q) {
     .replace(/w/g, "o"); // w → o
 }
 
+/**
+ * プログレッシブ辞典の meaning から「語」だけを取り出して配列で返す（日本語検索のスコアリング用）
+ * 例："[名]❶性別，性 ❷性，性交，セックス" → ["性別", "性", "性", "性交", "セックス"]
+ * 例："❶ 男性，男の人⇔หญิง[yǐŋ] 女性，女の人" → ["男性", "男の人"]
+ * @param {string} meaning - ptj_words / ptj_sub の meaning
+ */
+function extractPtjTerms(meaning) {
+  // meaning が null/undefined の場合は空配列を返す
+  if (!meaning) return [];
+
+  return (
+    meaning
+      // ① 改行と、語義番号（❶〜❿・①〜⑳）の直前で行に分ける
+      //    （"❶性別，性 ❷性" のように1行に番号が並ぶ場合があるため。(?=...) は「直前」を表すので番号自体は消えない）
+      .split(/\n|(?=[❶-❿①-⑳])/)
+      // ② 「◆」で始まる行（用法の説明）は捨てる
+      .filter((line) => !line.trim().startsWith("◆"))
+      // ③ 各行から余計な部分を取り除いて、④ 語に分ける
+      .flatMap((line) => {
+        let text = line;
+
+        // （…）(…) ＜…＞ を中身ごと取り除く（★説明・←語源・類別詞など）
+        // （ ）の中に（ ）がある場合、1回では内側しか消えないので、変化がなくなるまで繰り返す
+        let before;
+        do {
+          before = text;
+          text = text
+            // 全角・半角のかっこ（中にかっこを含まない一番内側のもの）
+            .replace(/[（(][^（）()]*[）)]/g, "")
+            // 類別詞の ＜…＞
+            .replace(/＜[^＜＞]*＞/g, "");
+        } while (text !== before);
+
+        // ⇒（参照）・⇔（反対語）から行の終わりまでを取り除く
+        text = text.replace(/[⇒⇔].*$/, "");
+
+        // 品詞・分野などの印と、記号を取り除く
+        text = text
+          // [名] [修] などの品詞
+          .replace(/\[[^\]]*\]/g, "")
+          // ［คน＋修飾詞］などの用法の形
+          .replace(/［[^］]*］/g, "")
+          // 〔親族〕〔人体〕などの分野
+          .replace(/〔[^〕]*〕/g, "")
+          // 《指示代名詞》などの説明
+          .replace(/《[^》]*》/g, "")
+          // 品詞の区切り線「━」と、語義番号
+          .replace(/[━❶-❿①-⑳]/g, "");
+
+        // ④ 「，」（全角カンマ）と「；」（全角セミコロン）で語に分ける
+        return text.split(/[，；]/);
+      })
+      // 前後の空白を取り除く
+      .map((term) => term.trim())
+      // 空になった語は捨てる
+      .filter((term) => term !== "")
+  );
+}
+
 export async function GET({ url }) {
   // クエリパラメータを取得
   const qRaw = url.searchParams.get("q")?.trim() ?? "";
@@ -153,11 +212,16 @@ async function searchPtj(q, mode, lang, page) {
    *   2 / 0: 前方一致（正規化後）
    *   1 / -1: 部分一致（正規化後）
    *   null: どれにも一致しない → 除外
-   * 意味モード：
+   * 意味モード（タイ語入力）：
    *   4 / 3: keywordの完全一致
    *   2 / 1: keywordの部分一致
-   *   0 / -1: meaningの部分一致
+   *   0 / -1: それ以外
+   * 意味モード（日本語・英語入力）：extractPtjTerms で meaning から語を取り出して比べる
+   *   4 / 3: どれかの語と完全一致（例：「性」で検索 → เพศ の「性」）
+   *   2 / 1: どれかの語が検索ワードで始まる（例：「性」で検索 → คุณสมบัติ の「性質」）
+   *   0 / -1: それ以外の部分一致（例：「性」で検索 → ครับ の説明文の「男性」）
    *  -2: type=exampleかつfrequency=0（ptj_sub、意味モードのみ）
+   * ※ 「A / B」の A が ptj_words、B が ptj_sub のスコア
    */
   function calcScore(item) {
     const isWords = item.source === "ptj_words";
@@ -186,9 +250,22 @@ async function searchPtj(q, mode, lang, page) {
     // 意味モードのときはtype=exampleかつfrequency=0は最低優先度
     if (!isWords && item.type === "example" && item.frequency === 0) return -2;
 
-    // 意味モードのときはkeywordでスコアリングする
-    if (item.keyword === q) return isWords ? 4 : 3;
-    if (item.keyword.includes(q)) return isWords ? 2 : 1;
+    // タイ語入力：keyword（見出し語）でスコアリングする（今まで通り）
+    if (lang === "thai") {
+      if (item.keyword === q) return isWords ? 4 : 3;
+      if (item.keyword.includes(q)) return isWords ? 2 : 1;
+      return isWords ? 0 : -1;
+    }
+
+    // 日本語・英語入力：meaning から語を取り出して比べる
+    // 例："[名]❶性別，性 ❷性，性交，セックス" → ["性別", "性", "性", "性交", "セックス"]
+    const terms = extractPtjTerms(item.meaning);
+
+    // どれかの語と完全一致 → 最上位
+    if (terms.includes(q)) return isWords ? 4 : 3;
+    // どれかの語が検索ワードで始まる → 中間
+    if (terms.some((term) => term.startsWith(q))) return isWords ? 2 : 1;
+    // それ以外（説明文の中などに含まれているだけ）
     return isWords ? 0 : -1;
   }
 
