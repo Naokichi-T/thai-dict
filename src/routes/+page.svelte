@@ -344,14 +344,18 @@
 
   /**
    * テキスト内の検索ワードをハイライトするHTMLを返す
+   * 大文字小文字は区別しない（「god」で検索したとき「God」にも色を付ける。検索の ilike と合わせるため）
+   * 表示される文字はデータのまま（「God」は「God」のまま色が付く）
    * @param {string} text - 対象テキスト
    * @param {string} q - 検索ワード
-   * @param {boolean} isExact - 完全一致かどうか（金色ハイライト）
    */
   function highlight(text, q) {
     if (!q || !text) return text;
+    // 検索ワードの中の記号（. * + ? など）を、ただの文字として扱えるようにする
     const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return text.replace(new RegExp(escaped, "g"), `<mark class="highlight">$&</mark>`);
+    // g：すべての一致に色を付ける ／ i：大文字小文字を区別しない
+    // $& は「一致した元の文字」なので、「God」は「God」のまま <mark> で囲まれる
+    return text.replace(new RegExp(escaped, "gi"), `<mark class="highlight">$&</mark>`);
   }
 
   // 入力言語を判定する関数
