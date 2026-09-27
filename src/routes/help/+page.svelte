@@ -14,17 +14,18 @@
 
   <section>
     <h2>辞書の特徴</h2>
-    <p>この辞書は7つのオンライン辞書を横断して検索できる辞書です。</p>
+    <p>この辞書は8つの辞書を横断して検索できる辞書です。</p>
     <ul>
       <li><a href="https://kotobank.jp/dictionary/ptj/" target="_blank">プログレッシブタイ語辞典（コトバンク）</a></li>
       <li><a href="https://www.gotthai.net/" target="_blank">ごったい</a></li>
       <li><a href="https://onlinedict.tk/onlinethai/" target="_blank">鍋田辞書P</a></li>
+      <li><a href="http://www.pdicthai.kingchin.jp/" target="_blank">PDICタイ語</a></li>
       <li><a href="http://www.thai-language.com/" target="_blank">thai-language.com</a></li>
       <!-- 以下3つを追加 -->
       <li><a href="https://th.wiktionary.org" target="_blank">Wiktionary</a></li>
       <li><a href="https://dictionary.orst.go.th/" target="_blank">王立学士院辞書</a></li>
       <!-- 音訳データベースはタイ国外からはVPNが必要なので注意書きを添える -->
-      <li><a href="https://transliteration.orst.go.th/search" target="_blank">王立学士院音訳データベース</a>（※アクセスにはVPNが必要）</li>
+      <li><a href="https://transliteration.orst.go.th/search" target="_blank">王立学士院音訳データベース</a> ※アクセスにはVPNが必要</li>
     </ul>
   </section>
 
