@@ -1136,9 +1136,14 @@ async function searchOrst(q, mode, lang, page) {
     // 読みモード：DB側のnormalize_reading関数で正規化して検索する（1000件を超えても全件取得）
     ({ data, error: fetchError } = await fetchAll(() => supabase.rpc("search_orst_by_reading", { q })));
   } else {
-    // 意味モード（タイ語入力）：word を部分一致で検索する（1000件を超えても全件取得）
+    // 意味モード（タイ語入力）：部分一致で検索する（1000件を超えても全件取得）
+    // 目次用の列 word_trgm を、同じ置き換えをした検索ワードで探す（声調記号があっても目次が効いて速い）
     ({ data, error: fetchError } = await fetchAll(() =>
-      supabase.from("orst_words").select("id, word, sense_label, sense_no, meaning, related_words, frequency, reading_normalized").ilike("word", `%${q}%`).order("id", { ascending: true }),
+      supabase
+        .from("orst_words")
+        .select("id, word, sense_label, sense_no, meaning, related_words, frequency, reading_normalized")
+        .ilike("word_trgm", `%${toTrgmText(q)}%`)
+        .order("id", { ascending: true }),
     ));
   }
 
