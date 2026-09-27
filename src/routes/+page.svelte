@@ -172,31 +172,44 @@
     // 入力言語を判定
     const lang = detectLang(query);
 
-    // 優先タブ（LocalStorageから取得）を先に検索する
-    const priorityTab = activeTab;
-    const priorityRes = await fetchTab(priorityTab, lang);
+    // 検索を始めた時点で選択中のタブ（検索中にタブを切り替えても変わらないよう覚えておく）
+    const startTab = activeTab;
 
-    // 優先タブの結果を即座に表示する
-    counts = { ...counts, [priorityTab]: priorityRes.count ?? 0 };
-    allResults = { ...allResults, [priorityTab]: priorityRes.results ?? [] };
-    totalPages = { ...totalPages, [priorityTab]: priorityRes.totalPages ?? 1 };
-    loading = false;
+    // いっしょに優先して検索するタブのグループ
+    const PRIORITY_GROUP = ["wiki", "orst"];
 
-    // 残りのタブをバックグラウンドで並列検索する
-    const otherTabs = TABS.filter((tab) => tab.id !== priorityTab);
-    bgLoading = { ...bgLoading, ...Object.fromEntries(otherTabs.map((tab) => [tab.id, true])) };
+    // 優先グループを決める
+    // Wiki・学士院を選んでいるときは2つとも優先、それ以外は選択中のタブだけ（今まで通り）
+    const priorityIds = PRIORITY_GROUP.includes(startTab) ? PRIORITY_GROUP : [startTab];
 
-    await Promise.all(
-      otherTabs.map((tab) =>
-        fetchTab(tab.id, lang).then((data) => {
-          // 各タブの結果が返ってきたら件数だけ更新する
-          counts = { ...counts, [tab.id]: data.count ?? 0 };
-          allResults = { ...allResults, [tab.id]: data.results ?? [] };
-          totalPages = { ...totalPages, [tab.id]: data.totalPages ?? 1 };
-          bgLoading = { ...bgLoading, [tab.id]: false };
-        }),
-      ),
-    );
+    // 優先グループ以外のタブID（後から検索する）
+    const otherIds = TABS.map((tab) => tab.id).filter((id) => !priorityIds.includes(id));
+
+    /**
+     * 1つのタブの検索結果を画面の状態に反映する
+     * @param {string} tabId - タブID
+     * @param {object} data - APIから返ってきたデータ（results / count / totalPages）
+     */
+    function applyResult(tabId, data) {
+      counts = { ...counts, [tabId]: data.count ?? 0 };
+      allResults = { ...allResults, [tabId]: data.results ?? [] };
+      totalPages = { ...totalPages, [tabId]: data.totalPages ?? 1 };
+      bgLoading = { ...bgLoading, [tabId]: false };
+      // 検索を始めたときに選択していたタブの結果が届いたら「検索中...」を消す
+      if (tabId === startTab) loading = false;
+    }
+
+    // 選択中のタブ以外は、結果が届くまで件数を「(...)」表示にしておく
+    bgLoading = {
+      ...bgLoading,
+      ...Object.fromEntries(TABS.filter((tab) => tab.id !== startTab).map((tab) => [tab.id, true])),
+    };
+
+    // ① 優先グループを並列で検索し、全部終わるまで待つ
+    await Promise.all(priorityIds.map((tabId) => fetchTab(tabId, lang).then((data) => applyResult(tabId, data))));
+
+    // ② 残りのタブを並列で検索する
+    await Promise.all(otherIds.map((tabId) => fetchTab(tabId, lang).then((data) => applyResult(tabId, data))));
   }
 
   /**
