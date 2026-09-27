@@ -6,6 +6,9 @@ const MAX_TEXTS = 50;
 // 1回のリクエストで翻訳できる合計文字数の上限（同上）
 const MAX_TOTAL_CHARS = 5000;
 
+// 文脈のヒント（context）の文字数の上限（context は文字数に数えられないが、送りすぎ防止のため）
+const MAX_CONTEXT_CHARS = 10000;
+
 // DeepL から返ってきたエラー番号ごとの、ユーザー向けメッセージ
 const ERROR_MESSAGES = {
   // 456：今月の上限（無料プランは50万文字）を超えた
@@ -48,6 +51,11 @@ export async function POST({ request }) {
     return Response.json({ error: "翻訳する文章が長すぎます。" }, { status: 400 });
   }
 
+  // 文脈のヒント（context）を読み取る
+  // 文字列でなければ使わない（""）、長すぎる場合は上限の文字数で切る
+  // ※ context は翻訳されず、DeepL の文字数（無料枠）にも数えられない
+  const context = typeof body?.context === "string" ? body.context.slice(0, MAX_CONTEXT_CHARS) : "";
+
   // キーの末尾が ":fx" なら無料プラン用、それ以外は有料プラン用のアドレスを使う
   const endpoint = DEEPL_API_KEY.endsWith(":fx") ? "https://api-free.deepl.com/v2/translate" : "https://api.deepl.com/v2/translate";
 
@@ -63,6 +71,8 @@ export async function POST({ request }) {
         text: texts, // 配列で送ると、同じ順番で訳が返ってくる
         source_lang: "TH",
         target_lang: "JA",
+        // context があるときだけ付ける（空のときは付けない＝今まで通りの翻訳）
+        ...(context ? { context } : {}),
       }),
     });
 
@@ -73,8 +83,10 @@ export async function POST({ request }) {
     }
 
     // 成功したら、訳の文字列だけを取り出して配列にする
+    // 文脈のヒントを付けると「（見出し語）は、〜」の続きのように訳されることがあるので、
+    // 訳の先頭が「は、」のときだけ取り除く（訳の途中の「は、」はそのまま）
     const data = await res.json();
-    const translations = (data.translations ?? []).map((item) => item.text);
+    const translations = (data.translations ?? []).map((item) => item.text.replace(/^は、/, ""));
 
     return Response.json({ translations });
   } catch (e) {

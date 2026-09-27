@@ -140,8 +140,9 @@
    * 取得済みなら表示／非表示を切り替えるだけ（APIは呼ばない）、まだなら DeepL で訳を取得して表示する
    * @param {string} key - "タブ名:見出し語"（例："wiki:เขา"）
    * @param {string[][]} blocks - 品詞（語義）ごとの、行の配列（例：[["1行目", "2行目"], ["1行目"]]）
+   * @param {string} word - カードの見出し語（文脈のヒントを作るのに使う）
    */
-  async function toggleReference(key, blocks) {
+  async function toggleReference(key, blocks, word) {
     const current = refTranslations[key];
 
     // 取得中は何もしない（二重に押されても API を2回呼ばないため）
@@ -169,11 +170,16 @@
     refTranslations = { ...refTranslations, [key]: { status: "loading", open: false, blocks: [], error: "" } };
 
     try {
-      // 翻訳APIに、集めた行をまとめて送る
+      // 文脈のヒント：「タイ語辞書における（見出し語）という語の意味の1つ」
+      // 短い行（1〜2語）の訳の取り違えを減らすため。ヒントは翻訳されず、文字数にも数えられない
+      // ※ カード全体の文をヒントにすると訳に混ざってしまったので、短い1文にしている
+      const context = `ความหมายหนึ่งของคำว่า "${word}" ในพจนานุกรมภาษาไทย`;
+
+      // 翻訳APIに、集めた行とヒントをまとめて送る
       const res = await fetch("/api/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ texts }),
+        body: JSON.stringify({ texts, context }),
       });
       const data = await res.json();
 
@@ -616,6 +622,8 @@
                     refKey,
                     // 品詞ごとに、意味を1行ずつに分けた配列を渡す
                     item.entries.map((entry) => splitLines(entry.meaning).map((line) => line.text)),
+                    // 文脈のヒントに使う見出し語
+                    item.word,
                   )}
               >
                 {#if ref?.status === "loading"}
@@ -684,6 +692,8 @@
                     refKey,
                     // 語義ごとに、意味を (๑)(๒)… の番号ごとに分けた配列を渡す
                     item.senses.map((sense) => splitSenseNumbers(sense.meaning)),
+                    // 文脈のヒントに使う見出し語
+                    item.word,
                   )}
               >
                 {#if ref?.status === "loading"}
