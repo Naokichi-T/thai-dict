@@ -10,6 +10,7 @@
     { id: "pdic", label: "PDIC" },
     { id: "thai", label: "ThaiLang" },
     { id: "wiki", label: "Wiki" },
+    { id: "orst", label: "学士院" },
   ];
 
   /**
@@ -65,6 +66,61 @@
 
   // 既読フラグをLocalStorageから取得する（SSR対策でonMount内で取得）
   let helpRead = $state(true);
+
+  // 学士院：派生語を開いている語義を覚えておく（"見出し語-sense_no" の形で入れる）
+  // Set は中身を変えても画面が更新されないことがあるので、変えるときは作り直す
+  let openRelated = $state(new Set());
+
+  /**
+   * 学士院の意味を (๑)(๒)… の番号ごとに分けて配列で返す
+   * 例："(๑) ก. เคี้ยว (๒) ก. เปลือง" → ["(๑) ก. เคี้ยว", "(๒) ก. เปลือง"]
+   * 番号がない意味は、そのまま1行の配列で返す
+   * @param {string} text - 学士院の meaning
+   */
+  function splitSenseNumbers(text) {
+    // text が null/undefined の場合は空配列を返す
+    if (!text) return [];
+    return (
+      text
+        // 「(タイ数字)」の直前で区切る（(?=...) は「直前」を表すので番号自体は消えない）
+        .split(/(?=\([๐-๙]+\))/)
+        // 前後の空白を取り除く
+        .map((part) => part.trim())
+        // 空になった部分（先頭の (๑) の前など）は捨てる
+        .filter((part) => part !== "")
+    );
+  }
+
+  /**
+   * 学士院の派生語（カンマ区切りの文字列）を配列にして返す
+   * 例："เขากวาง ๑,เขากวางอ่อน,เขาเกก" → ["เขากวาง ๑", "เขากวางอ่อน", "เขาเกก"]
+   * @param {string} text - 学士院の related_words
+   */
+  function splitRelated(text) {
+    // text が null/undefined の場合は空配列を返す
+    if (!text) return [];
+    return text
+      .split(",")
+      .map((word) => word.trim())
+      .filter((word) => word !== "");
+  }
+
+  /**
+   * 学士院の派生語の開閉を切り替える
+   * @param {string} key - "見出し語-sense_no"（例："เข้า-1"）
+   */
+  function toggleRelated(key) {
+    // 今の Set をコピーして新しい Set を作る
+    const next = new Set(openRelated);
+    // 開いていれば閉じる、閉じていれば開く
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    // 作り直した Set を入れることで画面が更新される
+    openRelated = next;
+  }
 
   /**
    * 検索を実行する
@@ -415,6 +471,43 @@
                 {#if entry.meaning_en}
                   <!-- eslint-disable-next-line svelte/no-at-html-tags -->
                   <div class="wiki-meaning-en">{@html highlight(entry.meaning_en, query)}</div>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {:else if activeTab === "orst"}
+          <!-- 王立学士院辞書の結果カード（同じ見出し語の語義をまとめて1枚で表示） -->
+          <div class="card">
+            <!-- 見出し語（リンクなし・タイ語検索の対象なのでハイライトする） -->
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <div class="keyword">{@html highlight(item.word, query)}</div>
+            <!-- 語義ごとのかたまりを順番に表示する -->
+            {#each item.senses as sense}
+              <div class="orst-sense">
+                <!-- 語義ラベル（เขา ๑ など）：語義が2つ以上あるときだけ表示する -->
+                {#if item.senses.length > 1}
+                  <div class="orst-label">{sense.sense_label}</div>
+                {/if}
+                <!-- 意味：(๑)(๒)… の番号ごとに1行ずつ表示する（検索対象外なのでハイライトしない） -->
+                <div class="orst-meaning">
+                  {#each splitSenseNumbers(sense.meaning) as line}
+                    <div>{line}</div>
+                  {/each}
+                </div>
+                <!-- 派生語：あるときだけ表示。最初は閉じていて、タップで開閉する -->
+                {#if sense.related_words}
+                  {@const related = splitRelated(sense.related_words)}
+                  {@const key = `${item.word}-${sense.sense_no}`}
+                  <button class="orst-related-toggle" onclick={() => toggleRelated(key)}>
+                    派生語（{related.length}）{openRelated.has(key) ? "▼" : "▶"}
+                  </button>
+                  {#if openRelated.has(key)}
+                    <div class="orst-related">
+                      {#each related as relatedWord}
+                        <span class="orst-related-word">{relatedWord}</span>
+                      {/each}
+                    </div>
+                  {/if}
                 {/if}
               </div>
             {/each}
@@ -860,5 +953,53 @@
     font-size: 13px;
     color: #888;
     margin-top: 4px;
+  }
+
+  /* 学士院：語義ごとのかたまり（上に薄い区切り線） */
+  .orst-sense {
+    border-top: 1px solid #e0e0e0;
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+
+  /* 学士院：語義ラベル（เขา ๑ など、小さいグレー） */
+  .orst-label {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 4px;
+  }
+
+  /* 学士院：意味（タイ語なので少し大きめ） */
+  .orst-meaning {
+    font-size: 16px;
+    color: #333;
+    line-height: 1.6;
+  }
+
+  /* 学士院：派生語の開閉ボタン（文字だけのボタン） */
+  .orst-related-toggle {
+    margin-top: 6px;
+    padding: 2px 0;
+    background: none;
+    border: none;
+    font-size: 13px;
+    color: #1a7f5a;
+    cursor: pointer;
+  }
+
+  /* 学士院：派生語の一覧（タグのように折り返して並べる） */
+  .orst-related {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+  }
+
+  /* 学士院：派生語1つ分のタグ */
+  .orst-related-word {
+    font-size: 14px;
+    background: #f0f0f0;
+    border-radius: 4px;
+    padding: 2px 8px;
   }
 </style>
