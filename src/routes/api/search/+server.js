@@ -863,9 +863,11 @@ async function searchPdic(q, mode, lang, page) {
     wordsData = data ?? [];
   } else if (lang === "thai") {
     // タイ語入力：pdic_words.word + pdic_abbr.word を両方検索（1000件を超えても全件取得）
+    // 目次用の列 word_trgm を、同じ置き換えをした検索ワードで探す（声調記号があっても目次が効いて速い）
+    const pattern = `%${toTrgmText(q)}%`;
     const [wordsRes, abbrRes] = await Promise.all([
-      fetchAll(() => supabase.from("pdic_words").select("id, no, word, reading, meaning, sample, frequency").ilike("word", `%${q}%`).order("no", { ascending: true })),
-      fetchAll(() => supabase.from("pdic_abbr").select("id, no, word, full_word").ilike("word", `%${q}%`).order("no", { ascending: true })),
+      fetchAll(() => supabase.from("pdic_words").select("id, no, word, reading, meaning, sample, frequency").ilike("word_trgm", pattern).order("no", { ascending: true })),
+      fetchAll(() => supabase.from("pdic_abbr").select("id, no, word, full_word").ilike("word_trgm", pattern).order("no", { ascending: true })),
     ]);
     if (wordsRes.error) return Response.json({ error: wordsRes.error.message }, { status: 500 });
     if (abbrRes.error) return Response.json({ error: abbrRes.error.message }, { status: 500 });
