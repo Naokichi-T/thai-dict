@@ -57,6 +57,29 @@ function normalizeReading(q) {
     .replace(/w/g, "o"); // w → o
 }
 
+// 目次用の列（word_trgm など）と同じ置き換えの対応表
+// トライグラムの目次では、声調記号などが「区切り」として扱われてしまうため、文字として扱われるギリシャ文字に置き換える
+// ※ データベースの生成列の translate(word, U&'\0E47\0E48\0E49\0E4A\0E4B\0E4C\0E4E', 'αβγδεζη') と必ず同じにすること
+const TRGM_REPLACE = {
+  "\u0E47": "α", // ็ ไม้ไต่คู้
+  "\u0E48": "β", // ่ ไม้เอก
+  "\u0E49": "γ", // ้ ไม้โท
+  "\u0E4A": "δ", // ๊ ไม้ตรี
+  "\u0E4B": "ε", // ๋ ไม้จัตวา
+  "\u0E4C": "ζ", // ์ การันต์
+  "\u0E4E": "η", // ๎ ยามักการ
+};
+
+/**
+ * 検索ワードを、目次用の列（word_trgm など）と同じ形に置き換えて返す
+ * 例："ม้า" → "มγา"、"เล่น" → "เลβน"、"กิน" → "กิน"（置き換える文字がなければそのまま）
+ * @param {string} text - 検索ワード
+ */
+function toTrgmText(text) {
+  // 7文字（\u0E47〜\u0E4C と \u0E4E）を見つけたら、対応表のギリシャ文字に置き換える
+  return text.replace(/[\u0E47-\u0E4C\u0E4E]/g, (ch) => TRGM_REPLACE[ch]);
+}
+
 /**
  * プログレッシブ辞典の meaning から「語」だけを取り出して配列で返す（日本語検索のスコアリング用）
  * 例："[名]❶性別，性 ❷性，性交，セックス" → ["性別", "性", "性", "性交", "セックス"]
@@ -725,10 +748,13 @@ async function searchThaiWords(q, mode, lang, page) {
     ({ data, error: fetchError } = await fetchAll(() => supabase.rpc("search_thai_words_by_reading", { q })));
   } else {
     // 意味モード：カラムを決めてSupabase側でフィルタリングする（1000件を超えても全件取得）
-    const column = lang === "thai" ? "word" : "meaning";
+    // タイ語入力：目次用の列 word_trgm を、同じ置き換えをした検索ワードで探す（声調記号があっても目次が効いて速い）
+    // それ以外：meaning をそのまま探す（今まで通り）
+    const column = lang === "thai" ? "word_trgm" : "meaning";
+    const pattern = lang === "thai" ? `%${toTrgmText(q)}%` : `%${q}%`;
 
     ({ data, error: fetchError } = await fetchAll(() =>
-      supabase.from("thai_words").select("id, no, word, reading, meaning, url, frequency, reading_normalized").ilike(column, `%${q}%`).order("no", { ascending: true }),
+      supabase.from("thai_words").select("id, no, word, reading, meaning, url, frequency, reading_normalized").ilike(column, pattern).order("no", { ascending: true }),
     ));
   }
 
