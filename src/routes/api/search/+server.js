@@ -636,9 +636,14 @@ async function searchNabeta(q, mode, lang, page) {
     return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
   }
 
-  // タイ語検索（wordカラムの部分一致、1000件を超えても全件取得）
+  // タイ語検索（1000件を超えても全件取得）
+  // 目次用の列 word_trgm を、同じ置き換えをした検索ワードで探す（声調記号があっても目次が効いて速い）
   const { data, error: fetchError } = await fetchAll(() =>
-    supabase.from("nabeta_words").select("id, no, word, meaning, reading, reading_normalized").ilike("word", `%${q}%`).order("no", { ascending: true }),
+    supabase
+      .from("nabeta_words")
+      .select("id, no, word, meaning, reading, reading_normalized")
+      .ilike("word_trgm", `%${toTrgmText(q)}%`)
+      .order("no", { ascending: true }),
   );
 
   if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
