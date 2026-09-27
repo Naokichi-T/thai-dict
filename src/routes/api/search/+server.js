@@ -63,6 +63,10 @@ export async function GET({ url }) {
     return await searchOrst(q, mode, lang, page);
   }
 
+  if (tab === "translit") {
+    return await searchTransliteration(q, mode, page);
+  }
+
   // 未実装のタブは空配列を返す
   return Response.json({ results: [], count: 0 });
 }
@@ -863,6 +867,66 @@ async function searchOrst(q, mode, lang, page) {
     });
 
   // 件数は「見出し語の数」で数える
+  const count = allResults.length;
+  const start = (page - 1) * PAGE_SIZE;
+  const results = allResults.slice(start, start + PAGE_SIZE);
+
+  return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
+}
+
+/**
+ * 王立学士院の音訳データ（orst_transliterationsテーブル）を検索する
+ * 外来語（foreign_word）だけを検索対象にする（thai_word は検索しない）
+ * 入力言語は問わない（英語・日本語・その他の言語すべて foreign_word を検索する）
+ * 1行＝1件として返す（言語が違うと別の行なので、まとめ処理はしない）
+ * 読みモード → 対象外なので0件
+ * @param {string} q - 検索ワード
+ * @param {string} mode - 検索モード（meaning / reading）
+ * @param {number} page - ページ番号
+ */
+async function searchTransliteration(q, mode, page) {
+  // 読みモードは対象外なので0件を返す
+  if (mode === "reading") {
+    return Response.json({ results: [], count: 0, page, totalPages: 1 });
+  }
+
+  // foreign_word を部分一致で検索する（ilike は大文字小文字を区別しない）
+  const { data, error: fetchError } = await supabase
+    .from("orst_transliterations")
+    .select("id, pointer_id, sub_language_id, foreign_word, thai_word")
+    .ilike("foreign_word", `%${q}%`)
+    .order("id", { ascending: true });
+
+  if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
+
+  // 比較用に検索ワードを小文字にしておく
+  const qLower = q.toLowerCase();
+
+  /**
+   * スコアをつける関数（大文字小文字は区別しない）
+   *   3: foreign_word の完全一致
+   *   2: foreign_word の前方一致
+   *   1: foreign_word の部分一致
+   */
+  function calcScore(item) {
+    const foreign = (item.foreign_word ?? "").toLowerCase();
+
+    if (foreign === qLower) return 3;
+    if (foreign.startsWith(qLower)) return 2;
+    return 1;
+  }
+
+  // スコアをつけて並び替える（スコア降順 → foreign_word が短い順 → id 昇順）
+  const allResults = (data ?? [])
+    .map((item) => ({ ...item, score: calcScore(item) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const lengthA = (a.foreign_word ?? "").length;
+      const lengthB = (b.foreign_word ?? "").length;
+      if (lengthA !== lengthB) return lengthA - lengthB;
+      return a.id - b.id;
+    });
+
   const count = allResults.length;
   const start = (page - 1) * PAGE_SIZE;
   const results = allResults.slice(start, start + PAGE_SIZE);
