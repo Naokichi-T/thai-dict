@@ -629,13 +629,16 @@
             </div>
           </div>
         {:else if activeTab === "orst"}
+          <!-- このカードの参考訳の名前（"orst:見出し語"）と、その状態 -->
+          {@const refKey = `orst:${item.word}`}
+          {@const ref = refTranslations[refKey]}
           <!-- 王立学士院辞書の結果カード（同じ見出し語の語義をまとめて1枚で表示） -->
           <div class="card">
             <!-- 見出し語（リンクなし・タイ語検索の対象なのでハイライトする） -->
             <!-- eslint-disable-next-line svelte/no-at-html-tags -->
             <div class="keyword">{@html highlight(item.word, query)}</div>
-            <!-- 語義ごとのかたまりを順番に表示する -->
-            {#each item.senses as sense}
+            <!-- 語義ごとのかたまりを順番に表示する（senseIndex：何番目の語義か） -->
+            {#each item.senses as sense, senseIndex}
               <div class="orst-sense">
                 <!-- 語義ラベル（เขา ๑ など）：語義が2つ以上あるときだけ表示する -->
                 {#if item.senses.length > 1}
@@ -643,11 +646,15 @@
                 {/if}
                 <!-- 意味：(๑)(๒)… の番号ごとに1行ずつ表示する（検索対象外なのでハイライトしない） -->
                 <div class="orst-meaning">
-                  {#each splitSenseNumbers(sense.meaning) as line}
+                  {#each splitSenseNumbers(sense.meaning) as line, lineIndex}
                     <div>{line}</div>
+                    <!-- 参考訳を表示中なら、その行の訳をすぐ下に出す -->
+                    {#if ref?.open && ref.blocks[senseIndex]?.[lineIndex]}
+                      <div class="ref-line">→ {ref.blocks[senseIndex][lineIndex]}</div>
+                    {/if}
                   {/each}
                 </div>
-                <!-- 派生語：あるときだけ表示。最初は閉じていて、タップで開閉する -->
+                <!-- 派生語：あるときだけ表示。最初は閉じていて、タップで開閉する（翻訳の対象外） -->
                 {#if sense.related_words}
                   {@const related = splitRelated(sense.related_words)}
                   {@const key = `${item.word}-${sense.sense_no}`}
@@ -664,6 +671,30 @@
                 {/if}
               </div>
             {/each}
+            <!-- 参考訳ボタンとエラーメッセージ -->
+            <div class="ref-area">
+              {#if ref?.status === "error"}
+                <div class="ref-error">{ref.error}</div>
+              {/if}
+              <button
+                class="ref-btn"
+                disabled={ref?.status === "loading"}
+                onclick={() =>
+                  toggleReference(
+                    refKey,
+                    // 語義ごとに、意味を (๑)(๒)… の番号ごとに分けた配列を渡す
+                    item.senses.map((sense) => splitSenseNumbers(sense.meaning)),
+                  )}
+              >
+                {#if ref?.status === "loading"}
+                  取得中...
+                {:else if ref?.open}
+                  閉じる
+                {:else}
+                  参考訳
+                {/if}
+              </button>
+            </div>
           </div>
         {:else if activeTab === "translit"}
           <!-- 音訳データの結果カード（1行＝1枚） -->
