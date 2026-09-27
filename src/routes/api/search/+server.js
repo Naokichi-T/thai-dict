@@ -328,17 +328,21 @@ async function searchPtj(q, mode, lang, page) {
     ({ data: subData, error: subError } = await fetchAll(() => supabase.rpc("search_ptj_sub_by_reading", { q })));
   } else {
     // 意味モード：カラムを決めてSupabase側でフィルタリングする（1000件を超えても全件取得）
-    const column = lang === "thai" ? "keyword" : "meaning";
+    // タイ語入力：目次用の列 keyword_trgm を、同じ置き換えをした検索ワードで探す（声調記号があっても目次が効いて速い）
+    // それ以外：meaning をそのまま探す（今まで通り）
+    // ※ ptj_words と ptj_sub のどちらも同じ列名・同じ探し方
+    const column = lang === "thai" ? "keyword_trgm" : "meaning";
+    const pattern = lang === "thai" ? `%${toTrgmText(q)}%` : `%${q}%`;
 
     ({ data: wordsData, error: wordsError } = await fetchAll(() =>
-      supabase.from("ptj_words").select("id, no, keyword, reading, meaning, frequency, reading_normalized, reading_normalized_arr").ilike(column, `%${q}%`).order("no", { ascending: true }),
+      supabase.from("ptj_words").select("id, no, keyword, reading, meaning, frequency, reading_normalized, reading_normalized_arr").ilike(column, pattern).order("no", { ascending: true }),
     ));
 
     ({ data: subData, error: subError } = await fetchAll(() =>
       supabase
         .from("ptj_sub")
         .select("id, no, keyword, reading, meaning, parent_keyword, frequency, type, reading_normalized, reading_normalized_arr")
-        .ilike(column, `%${q}%`)
+        .ilike(column, pattern)
         .order("no", { ascending: true }),
     ));
   }
