@@ -59,6 +59,10 @@ export async function GET({ url }) {
     return await searchWiktionary(q, mode, lang, page);
   }
 
+  if (tab === "orst") {
+    return await searchOrst(q, mode, lang, page);
+  }
+
   // 未実装のタブは空配列を返す
   return Response.json({ results: [], count: 0 });
 }
@@ -721,6 +725,130 @@ async function searchWiktionary(q, mode, lang, page) {
 
     if (terms.includes(qLower)) return 3;
     if (terms.some((term) => term.startsWith(qLower))) return 2;
+    return 1;
+  }
+
+  // スコアをつけて並び替える（スコア降順 → frequency 降順 → firstId 昇順）
+  const allResults = [...groups.values()]
+    .map((group) => ({ ...group, score: calcScore(group) }))
+    .filter((group) => group.score !== null)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.frequency !== a.frequency) return b.frequency - a.frequency;
+      return a.firstId - b.firstId;
+    });
+
+  // 件数は「見出し語の数」で数える
+  const count = allResults.length;
+  const start = (page - 1) * PAGE_SIZE;
+  const results = allResults.slice(start, start + PAGE_SIZE);
+
+  return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
+}
+
+/**
+ * 王立学士院辞書（orst_wordsテーブル）を検索する
+ * 同じ見出し語（word）の行は1つにまとめ、語義ごとの中身を senses に入れて返す
+ * 読みモード       → SQL関数 search_orst_by_reading で reading_normalized を検索
+ * タイ語入力       → word の部分一致
+ * 日本語・英語入力 → タイ語の説明文しかないので0件
+ * @param {string} q - 検索ワード
+ * @param {string} mode - 検索モード（meaning / reading）
+ * @param {string} lang - 入力言語（thai / japanese / other）
+ * @param {number} page - ページ番号
+ */
+async function searchOrst(q, mode, lang, page) {
+  // 意味モードでタイ語以外の入力は対象データがないので0件を返す
+  if (mode === "meaning" && lang !== "thai") {
+    return Response.json({ results: [], count: 0, page, totalPages: 1 });
+  }
+
+  let data, fetchError;
+
+  if (mode === "reading") {
+    // 読みモード：DB側のnormalize_reading関数で正規化して検索する
+    ({ data, error: fetchError } = await supabase.rpc("search_orst_by_reading", { q }));
+  } else {
+    // 意味モード（タイ語入力）：word を部分一致で検索する
+    ({ data, error: fetchError } = await supabase
+      .from("orst_words")
+      .select("id, word, sense_label, sense_no, meaning, related_words, frequency, reading_normalized")
+      .ilike("word", `%${q}%`)
+      .order("id", { ascending: true }));
+  }
+
+  if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
+
+  // 同じ見出し語（word）の行を1つにまとめる
+  // Map は追加した順番を保つ
+  const groups = new Map();
+
+  for (const row of data ?? []) {
+    // その見出し語が初めて出てきたら、まとめ用のオブジェクトを作る
+    if (!groups.has(row.word)) {
+      groups.set(row.word, {
+        word: row.word,
+        frequency: row.frequency ?? 0,
+        reading_normalized: row.reading_normalized,
+        firstId: row.id,
+        senses: [],
+      });
+    }
+
+    const group = groups.get(row.word);
+
+    // 最初の行の読みが空だった場合は、後の行の読みで埋める
+    if (!group.reading_normalized && row.reading_normalized) group.reading_normalized = row.reading_normalized;
+
+    // frequency は行の中で一番大きい値、firstId は一番小さい id にする
+    group.frequency = Math.max(group.frequency, row.frequency ?? 0);
+    group.firstId = Math.min(group.firstId, row.id);
+
+    // 語義ごとの中身を追加する
+    group.senses.push({
+      sense_label: row.sense_label,
+      sense_no: row.sense_no,
+      meaning: row.meaning,
+      related_words: row.related_words,
+    });
+  }
+
+  // 各見出し語の senses を sense_no の小さい順に並べる（เขา ๑ → เขา ๒ → …）
+  for (const group of groups.values()) {
+    group.senses.sort((a, b) => (a.sense_no ?? 0) - (b.sense_no ?? 0));
+  }
+
+  /**
+   * まとめた見出し語1つにスコアをつける関数
+   * 読みモード：
+   *   6: 完全一致（正規化なし）
+   *   5: 完全一致（正規化後）
+   *   4: 前方一致（正規化なし）
+   *   3: 前方一致（正規化後）
+   *   2: 部分一致（正規化なし）
+   *   1: 部分一致（正規化後）
+   *   null: どれにも一致しない → 除外
+   * 意味モード（タイ語入力）：
+   *   3: word の完全一致
+   *   2: word の前方一致
+   *   1: word の部分一致
+   */
+  function calcScore(group) {
+    if (mode === "reading") {
+      const r = group.reading_normalized ?? "";
+      const rNorm = normalizeReading(r);
+
+      if (r === q) return 6;
+      if (rNorm === q) return 5;
+      if (r.startsWith(q)) return 4;
+      if (rNorm.startsWith(q)) return 3;
+      if (r.includes(q)) return 2;
+      if (rNorm.includes(q)) return 1;
+      return null;
+    }
+
+    if (group.word === q) return 3;
+    if (group.word.startsWith(q)) return 2;
     return 1;
   }
 
