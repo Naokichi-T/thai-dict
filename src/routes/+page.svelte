@@ -432,7 +432,8 @@
   @import url("https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap");
 
   .container {
-    max-width: 680px;
+    /* 最大幅（タブレット縦向きでほぼ画面いっぱいになる幅） */
+    max-width: 800px;
     margin: 0 auto;
     padding: 24px 16px;
     font-family: "Sarabun", sans-serif;
