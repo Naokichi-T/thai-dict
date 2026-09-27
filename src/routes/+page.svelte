@@ -40,6 +40,10 @@
   let allResults = $state(byTab([]));
   let counts = $state(byTab(null));
 
+  // 各タブの検索エラー（エラーがなければ null、あればエラーの文章）
+  // 失敗したタブを (0) ではなく (エラー) と表示するために使う
+  let errors = $state(byTab(null));
+
   // 現在表示中の結果（アクティブタブのキャッシュを参照）
   let results = $derived(allResults[activeTab] ?? []);
 
@@ -213,19 +217,38 @@
   }
 
   /**
-   * 1つのタブの検索結果（1ページ目）を取得して返す
+   * 1つのタブの検索結果を取得して返す
    * 音訳タブは読み検索に対応していないので、読みモードのときはAPIを呼ばずに0件を返す
+   * 失敗したときは { error: "エラーの文章" } を返す（呼び出し元で (エラー) と表示するため）
    * @param {string} tabId - タブID
    * @param {string} lang - 入力言語（thai / japanese / other）
+   * @param {number} page - ページ番号（省略すると1ページ目）
    */
-  async function fetchTab(tabId, lang) {
+  async function fetchTab(tabId, lang, page = 1) {
     // 音訳タブ × 読みモード → APIを呼ばずに0件
     if (tabId === "translit" && searchMode === "reading") {
       return { results: [], count: 0, totalPages: 1 };
     }
 
-    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&tab=${tabId}&mode=${searchMode}&lang=${lang}&page=1`);
-    return await res.json();
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&tab=${tabId}&mode=${searchMode}&lang=${lang}&page=${page}`);
+
+      // 返ってきた中身を JSON として読む（JSON でなければ null にする）
+      const data = await res.json().catch(() => null);
+
+      // ステータスが 200 番台以外、または中身に error が入っていたら「失敗」として返す
+      // ・データベースのエラー：{ error: "canceling statement ..." }（+server.js が返す）
+      // ・コードのミス：{ message: "Internal Error" }（SvelteKit が返す）
+      if (!res.ok || !data || data.error) {
+        return { error: data?.error ?? data?.message ?? `サーバーエラー（${res.status}）` };
+      }
+
+      // 成功
+      return data;
+    } catch (e) {
+      // 通信そのものが失敗したとき（ネットが切れたときなど）
+      return { error: "通信に失敗しました" };
+    }
   }
 
   /**
@@ -253,6 +276,7 @@
     counts = byTab(null);
     allResults = byTab([]);
     totalPages = byTab(1);
+    errors = byTab(null);
 
     // 入力言語を判定
     const lang = detectLang(query);
@@ -273,12 +297,22 @@
     /**
      * 1つのタブの検索結果を画面の状態に反映する
      * @param {string} tabId - タブID
-     * @param {object} data - APIから返ってきたデータ（results / count / totalPages）
+     * @param {object} data - fetchTab から返ってきたデータ（results / count / totalPages、失敗したときは error）
      */
     function applyResult(tabId, data) {
-      counts = { ...counts, [tabId]: data.count ?? 0 };
-      allResults = { ...allResults, [tabId]: data.results ?? [] };
-      totalPages = { ...totalPages, [tabId]: data.totalPages ?? 1 };
+      if (data.error) {
+        // 失敗：エラーの文章を覚えておき、件数と結果は空にする（件数は (エラー) と表示される）
+        errors = { ...errors, [tabId]: data.error };
+        counts = { ...counts, [tabId]: null };
+        allResults = { ...allResults, [tabId]: [] };
+        totalPages = { ...totalPages, [tabId]: 1 };
+      } else {
+        // 成功：今まで通り、件数と結果を入れる
+        errors = { ...errors, [tabId]: null };
+        counts = { ...counts, [tabId]: data.count ?? 0 };
+        allResults = { ...allResults, [tabId]: data.results ?? [] };
+        totalPages = { ...totalPages, [tabId]: data.totalPages ?? 1 };
+      }
       bgLoading = { ...bgLoading, [tabId]: false };
       // 検索を始めたときに選択していたタブの結果が届いたら「検索中...」を消す
       if (tabId === startTab) loading = false;
@@ -319,11 +353,18 @@
     currentPage = newPage;
 
     const lang = detectLang(query);
-    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&tab=${activeTab}&mode=${searchMode}&lang=${lang}&page=${newPage}`);
-    const data = await res.json();
+    // 検索と同じ fetchTab を使う（失敗したときの扱いを1か所にまとめるため）
+    const data = await fetchTab(activeTab, lang, newPage);
 
-    // アクティブタブの結果を更新
-    allResults = { ...allResults, [activeTab]: data.results ?? [] };
+    if (data.error) {
+      // 失敗：エラーの文章を覚えておき、結果は空にする
+      errors = { ...errors, [activeTab]: data.error };
+      allResults = { ...allResults, [activeTab]: [] };
+    } else {
+      // 成功：アクティブタブの結果を更新
+      errors = { ...errors, [activeTab]: null };
+      allResults = { ...allResults, [activeTab]: data.results ?? [] };
+    }
 
     loading = false;
   }
@@ -338,6 +379,7 @@
     searched = false;
     counts = byTab(null);
     totalPages = byTab(1);
+    errors = byTab(null);
     currentPage = 1;
     errorMessage = "";
   }
@@ -441,6 +483,9 @@
         {tab.label}
         {#if bgLoading[tab.id]}
           <span class="count">(...)</span>
+        {:else if errors[tab.id]}
+          <!-- 検索に失敗したタブは、件数の代わりに赤い (エラー) を出す -->
+          <span class="count count-error">(エラー)</span>
         {:else if counts[tab.id] !== null}
           <span class="count">({counts[tab.id]})</span>
         {/if}
@@ -457,6 +502,12 @@
   <div class="results">
     {#if loading}
       <p class="message">検索中...</p>
+    {:else if errors[activeTab]}
+      <!-- 検索に失敗したタブ：日本語のお知らせと、サーバーから返ってきたエラーの文章を出す -->
+      <div class="error-box">
+        <p class="error-box-title">検索に失敗しました。もう一度「検索」を押してください。</p>
+        <p class="error-box-detail">{errors[activeTab]}</p>
+      </div>
     {:else if searched && activeTab === "translit" && searchedMode === "reading"}
       <!-- 音訳タブは読み検索に対応していない -->
       <p class="message">音訳タブは読み検索に対応していません</p>
@@ -952,6 +1003,36 @@
 
   .tab.active .count {
     color: #1a7f5a;
+  }
+
+  /* タブの (エラー) 表示（選択中のタブでも緑にせず赤のままにする） */
+  .count.count-error,
+  .tab.active .count.count-error {
+    color: #e53e3e;
+  }
+
+  /* 検索エラーのお知らせ（薄い赤の枠） */
+  .error-box {
+    border: 1px solid #f5c2c2;
+    background: #fff5f5;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-top: 16px;
+  }
+
+  /* 検索エラーのお知らせ：1行目（日本語のお知らせ） */
+  .error-box-title {
+    color: #c53030;
+    font-size: 14px;
+    margin: 0 0 4px;
+  }
+
+  /* 検索エラーのお知らせ：2行目（サーバーから返ってきたエラーの文章。長い英文でもはみ出さないよう折り返す） */
+  .error-box-detail {
+    color: #888;
+    font-size: 12px;
+    margin: 0;
+    word-break: break-all;
   }
 
   /* タブの説明文（音訳タブなど） */
