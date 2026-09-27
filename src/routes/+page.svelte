@@ -553,12 +553,17 @@
     background: #155f44;
   }
 
-  /* タブ */
+  /* タブ（はみ出したら横スクロールする） */
   .tabs {
     display: flex;
     gap: 4px;
     margin-bottom: 16px;
-    border-bottom: 2px solid #e0e0e0;
+    /* 横方向にはみ出したらスクロールできるようにする */
+    overflow-x: auto;
+    /* スクロールバーを細くする（Firefox・Chrome対応） */
+    scrollbar-width: thin;
+    /* 下のグレー線：border だとスクロール時に子要素の下線と重ならないので、内側の影で描く */
+    box-shadow: inset 0 -2px 0 #e0e0e0;
   }
 
   .tab {
@@ -566,10 +571,11 @@
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
-    margin-bottom: -2px;
     font-size: 14px;
     cursor: pointer;
     color: #666;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   .tab.active {
