@@ -18,7 +18,7 @@
     <ul>
       <li><a href="https://kotobank.jp/dictionary/ptj/" target="_blank">プログレッシブタイ語辞典（コトバンク）</a></li>
       <li><a href="https://www.gotthai.net/" target="_blank">ごったい</a></li>
-      <li><a href="https://onlinedict.tk/onlinethai/" target="_blank">鍋田辞書P</a></li>
+      <li><a href="https://onlinedict.tk/onlinethai/" target="_blank">鍋田辞書P</a> ※本家サイト閉鎖</li>
       <li><a href="http://www.pdicthai.kingchin.jp/" target="_blank">PDICタイ語</a></li>
       <li><a href="http://www.thai-language.com/" target="_blank">thai-language.com</a></li>
       <!-- 以下3つを追加 -->
