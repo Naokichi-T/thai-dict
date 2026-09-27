@@ -116,6 +116,67 @@ function extractPtjTerms(meaning) {
   );
 }
 
+/**
+ * thai-language.com の meaning（JSON）から「語」だけを取り出して、小文字の配列で返す（英語検索のスコアリング用）
+ * 例：[{"meaning": "gender; sex; form; sort; -hood"}] → ["gender", "sex", "form", "sort", "-hood"]
+ * 例：[{"meaning": "[sexual; colloquial slang] a man's testicle (ball)"}] → ["a man's testicle"]
+ * 例：[{"meaning": "to receive, get"}] → ["receive", "get"]（先頭の "to " は取る）
+ * 例：[{"meaning": "to eat or drink"}] → ["eat", "drink"]（" or " でも分ける）
+ * @param {string} meaning - thai_words の meaning（JSON形式の文字列）
+ */
+function extractThaiLangTerms(meaning) {
+  // JSON を読む（壊れていたら空配列を返す）
+  let entries;
+  try {
+    entries = JSON.parse(meaning ?? "[]");
+  } catch {
+    return [];
+  }
+  // 配列でなければ空配列を返す
+  if (!Array.isArray(entries)) return [];
+
+  return (
+    entries
+      // 品詞（category）ごとの意味を1つずつ処理して、語に分ける
+      .flatMap((entry) => {
+        let text = entry.meaning ?? "";
+
+        // [...] (...) を中身ごと取り除く（[sexual; colloquial slang]、(ball) など）
+        // かっこの中にかっこがある場合、1回では内側しか消えないので、変化がなくなるまで繰り返す
+        let before;
+        do {
+          before = text;
+          text = text
+            // 角かっこ（中に角かっこを含まない一番内側のもの）
+            .replace(/\[[^\[\]]*\]/g, "")
+            // 丸かっこ（中に丸かっこを含まない一番内側のもの）
+            .replace(/\([^()]*\)/g, "");
+        } while (text !== before);
+
+        // ダブルクォートを取り除く（"sexy" → sexy）
+        text = text.replace(/"/g, "");
+
+        // 「;」「,」と、前後に空白がある「 or 」で語に分ける
+        // 例："to eat or drink" → ["to eat", "drink"]（このあと先頭の "to " を取って "eat" になる）
+        // ※ \s は空白1文字。前後に空白があるものだけなので、"doctor" や "order" の中の or では分けない
+        return text.split(/[;,]|\sor\s/);
+      })
+      .map((term) =>
+        term
+          // かっこを消したあとに残った余分な空白を1つにまとめる（"pick  up" → "pick up"）
+          .replace(/\s+/g, " ")
+          // 前後の空白を取り除く
+          .trim()
+          // 大文字小文字を区別しないよう小文字にする
+          .toLowerCase()
+          // 先頭の "to " を取る（"to receive" → "receive"）
+          .replace(/^to /, ""),
+      )
+      // 空になった語は捨てる
+      .filter((term) => term !== "")
+  );
+}
+
 export async function GET({ url }) {
   // クエリパラメータを取得
   const qRaw = url.searchParams.get("q")?.trim() ?? "";
@@ -605,10 +666,14 @@ async function searchThaiWords(q, mode, lang, page) {
    *   2: 前方一致（正規化後）
    *   1: 部分一致（正規化後）
    *   null: どれにも一致しない → 除外
-   * 意味モード：
+   * 意味モード（タイ語入力）：
    *   3: wordの完全一致
    *   2: wordの前方一致
    *   1: wordの部分一致
+   * 意味モード（英語・日本語入力）：extractThaiLangTerms で meaning から語を取り出して比べる（大文字小文字は区別しない）
+   *   3: どれかの語と完全一致（例：「sex」で検索 → เพศ の「sex」）
+   *   2: どれかの語が検索ワードで始まる（例：「sex」で検索 → เซ็กส์ซี่ の「sexy」）
+   *   1: それ以外の部分一致（例：「sex」で検索 → การบ้าน の「having sex」）
    */
   function calcScore(item) {
     if (mode === "reading") {
@@ -624,8 +689,23 @@ async function searchThaiWords(q, mode, lang, page) {
       return null;
     }
 
-    if (item.word === q) return 3;
-    if (item.word.startsWith(q)) return 2;
+    // タイ語入力：word（見出し語）で比べる（今まで通り）
+    if (lang === "thai") {
+      if (item.word === q) return 3;
+      if (item.word.startsWith(q)) return 2;
+      return 1;
+    }
+
+    // 英語・日本語入力：meaning から語を取り出して、小文字どうしで比べる
+    // 例："gender; sex; form; sort; -hood" → ["gender", "sex", "form", "sort", "-hood"]
+    const qLower = q.toLowerCase();
+    const terms = extractThaiLangTerms(item.meaning);
+
+    // どれかの語と完全一致 → 最上位
+    if (terms.includes(qLower)) return 3;
+    // どれかの語が検索ワードで始まる → 中間
+    if (terms.some((term) => term.startsWith(qLower))) return 2;
+    // それ以外（説明文の途中に含まれているだけ）
     return 1;
   }
 
