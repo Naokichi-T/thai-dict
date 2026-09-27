@@ -995,15 +995,14 @@ async function searchWiktionary(q, mode, lang, page) {
     // 読みモード：DB側のnormalize_reading関数で正規化して検索する（1000件を超えても全件取得）
     ({ data, error: fetchError } = await fetchAll(() => supabase.rpc("search_wiktionary_by_reading", { q })));
   } else {
-    // 意味モード：タイ語入力なら word、英語入力なら meaning_en を検索する（1000件を超えても全件取得）
-    const column = lang === "thai" ? "word" : "meaning_en";
+    // 意味モード：タイ語入力なら word_trgm、英語入力なら meaning_en を検索する（1000件を超えても全件取得）
+    // タイ語入力：目次用の列 word_trgm を、同じ置き換えをした検索ワードで探す（声調記号があっても目次が効いて速い）
+    // 英語入力：meaning_en をそのまま探す（今まで通り）
+    const column = lang === "thai" ? "word_trgm" : "meaning_en";
+    const pattern = lang === "thai" ? `%${toTrgmText(q)}%` : `%${q}%`;
 
     ({ data, error: fetchError } = await fetchAll(() =>
-      supabase
-        .from("wiktionary_words")
-        .select("id, word, reading_paiboon, pos_title, pos, meaning, meaning_en, frequency, reading_normalized")
-        .ilike(column, `%${q}%`)
-        .order("id", { ascending: true }),
+      supabase.from("wiktionary_words").select("id, word, reading_paiboon, pos_title, pos, meaning, meaning_en, frequency, reading_normalized").ilike(column, pattern).order("id", { ascending: true }),
     ));
   }
 
