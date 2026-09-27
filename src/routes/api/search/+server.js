@@ -177,6 +177,66 @@ function extractThaiLangTerms(meaning) {
   );
 }
 
+/**
+ * PDIC の sample（「読み [英語の意味]」の形）から、英語の意味の部分だけを返す
+ * 例："phra cao [God; Saviour]" → "God; Saviour]"
+ * 最初の「[」より後ろを返す（読みの部分は含めない）。「[」がない行（読みだけ）は "" を返す
+ * @param {string} sample - pdic_words の sample
+ */
+function getPdicEnglishPart(sample) {
+  // sample が null/undefined の場合は "" を返す
+  if (!sample) return "";
+  // 最初の「[」の位置を探す
+  const start = sample.indexOf("[");
+  // 「[」がなければ英語の意味はないので "" を返す
+  if (start === -1) return "";
+  // 「[」の次の文字から最後までを返す
+  return sample.slice(start + 1);
+}
+
+/**
+ * PDIC の sample の英語の意味から「語」だけを取り出して、小文字の配列で返す（英語検索のスコアリング用）
+ * 例："phra cao [God; Saviour; prefix for …]" → ["god", "saviour", "prefix for …"]
+ * 例："tuu naa [Indian shortfin (or short-finned) eel]" → ["indian shortfin eel"]
+ * @param {string} sample - pdic_words の sample
+ */
+function extractPdicTerms(sample) {
+  // 英語の意味の部分だけを使う（読みの部分は使わない）
+  let text = getPdicEnglishPart(sample);
+
+  // 〔…〕（日本語の説明）と (…) を中身ごと取り除く
+  // かっこの中にかっこがある場合、1回では内側しか消えないので、変化がなくなるまで繰り返す
+  let before;
+  do {
+    before = text;
+    text = text
+      // 日本語の説明の〔…〕（中に〔〕を含まない一番内側のもの）
+      .replace(/〔[^〔〕]*〕/g, "")
+      // 丸かっこ（中に丸かっこを含まない一番内側のもの）
+      .replace(/\([^()]*\)/g, "");
+  } while (text !== before);
+
+  // 残った「[」「]」を取り除く（閉じかっこや、閉じ忘れの「[」）
+  text = text.replace(/[\[\]]/g, "");
+
+  return (
+    text
+      // 「;」と「,」で語に分ける
+      .split(/[;,]/)
+      .map((term) =>
+        term
+          // かっこを消したあとに残った余分な空白を1つにまとめる
+          .replace(/\s+/g, " ")
+          // 前後の空白を取り除く
+          .trim()
+          // 大文字小文字を区別しないよう小文字にする
+          .toLowerCase(),
+      )
+      // 空になった語は捨てる
+      .filter((term) => term !== "")
+  );
+}
+
 export async function GET({ url }) {
   // クエリパラメータを取得
   const qRaw = url.searchParams.get("q")?.trim() ?? "";
@@ -764,7 +824,12 @@ async function searchPdic(q, mode, lang, page) {
     // 英語入力：pdic_words.sample を検索する（1000件を超えても全件取得）
     const { data, error } = await fetchAll(() => supabase.from("pdic_words").select("id, no, word, reading, meaning, sample, frequency").ilike("sample", `%${q}%`).order("no", { ascending: true }));
     if (error) return Response.json({ error: error.message }, { status: 500 });
-    wordsData = data ?? [];
+
+    // sample は「読み [英語の意味]」の形なので、読みの部分にだけヒットした行を外す
+    // 例：「book」で検索 → "book [tell; say; …]"（บอก の読みが book）は外す
+    // 英語の意味の部分に検索ワードが入っている行だけを残す（大文字小文字は区別しない）
+    const qLower = q.toLowerCase();
+    wordsData = (data ?? []).filter((row) => getPdicEnglishPart(row.sample).toLowerCase().includes(qLower));
   }
 
   /**
@@ -774,7 +839,13 @@ async function searchPdic(q, mode, lang, page) {
    *   3: word の前方一致
    *   2: word の部分一致
    * 意味モード（日本語）:
-   *   1: meaning の部分一致
+   *   3: disp の完全一致
+   *   2: disp の前方一致
+   *   1: disp の部分一致
+   * 意味モード（英語）：extractPdicTerms で sample の英語の意味から語を取り出して比べる（大文字小文字は区別しない）
+   *   3: どれかの語と完全一致（例：「god」で検索 → พระเจ้า の「God」）
+   *   2: どれかの語が検索ワードで始まる（例：「god」で検索 → โกดัง の「godown」）
+   *   1: それ以外の部分一致（例：「god」で検索 → ตายแล้ว の「Oh my God！」）
    * 読みモード:
    *   3: reading の完全一致
    *   2: reading の前方一致
@@ -802,9 +873,23 @@ async function searchPdic(q, mode, lang, page) {
       if (item.word.startsWith(q)) return 3;
       return 2;
     }
-    // 日本語／英語：dispでスコアリングする
-    if (item.disp === q) return 3;
-    if (item.disp?.startsWith(q)) return 2;
+    // 日本語入力：disp でスコアリングする（今まで通り）
+    if (lang === "japanese") {
+      if (item.disp === q) return 3;
+      if (item.disp?.startsWith(q)) return 2;
+      return 1;
+    }
+
+    // 英語入力：sample の英語の意味から語を取り出して、小文字どうしで比べる
+    // 例："phra cao [God; Saviour; …]" → ["god", "saviour", …]
+    const qLower = q.toLowerCase();
+    const terms = extractPdicTerms(item.sample);
+
+    // どれかの語と完全一致 → 最上位
+    if (terms.includes(qLower)) return 3;
+    // どれかの語が検索ワードで始まる → 中間
+    if (terms.some((term) => term.startsWith(qLower))) return 2;
+    // それ以外（説明文の途中に含まれているだけ）
     return 1;
   }
 
