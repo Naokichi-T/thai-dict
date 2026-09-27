@@ -55,6 +55,10 @@ export async function GET({ url }) {
     return await searchThaiWords(q, mode, lang, page);
   }
 
+  if (tab === "wiki") {
+    return await searchWiktionary(q, mode, lang, page);
+  }
+
   // 未実装のタブは空配列を返す
   return Response.json({ results: [], count: 0 });
 }
@@ -590,6 +594,147 @@ async function searchPdic(q, mode, lang, page) {
       return a.no - b.no;
     });
 
+  const count = allResults.length;
+  const start = (page - 1) * PAGE_SIZE;
+  const results = allResults.slice(start, start + PAGE_SIZE);
+
+  return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
+}
+
+/**
+ * Wiktionary（wiktionary_wordsテーブル）を検索する
+ * 同じ見出し語（word）の行は1つにまとめ、品詞ごとの中身を entries に入れて返す
+ * 読みモード → SQL関数 search_wiktionary_by_reading で reading_normalized を検索
+ * タイ語入力 → word の部分一致
+ * 英語入力   → meaning_en の部分一致
+ * 日本語入力 → 日本語のデータがないので0件
+ * @param {string} q - 検索ワード
+ * @param {string} mode - 検索モード（meaning / reading）
+ * @param {string} lang - 入力言語（thai / japanese / other）
+ * @param {number} page - ページ番号
+ */
+async function searchWiktionary(q, mode, lang, page) {
+  // 日本語入力の意味検索は対象データがないので0件を返す
+  if (mode === "meaning" && lang === "japanese") {
+    return Response.json({ results: [], count: 0, page, totalPages: 1 });
+  }
+
+  let data, fetchError;
+
+  if (mode === "reading") {
+    // 読みモード：DB側のnormalize_reading関数で正規化して検索する
+    ({ data, error: fetchError } = await supabase.rpc("search_wiktionary_by_reading", { q }));
+  } else {
+    // 意味モード：タイ語入力なら word、英語入力なら meaning_en を検索する
+    const column = lang === "thai" ? "word" : "meaning_en";
+
+    ({ data, error: fetchError } = await supabase
+      .from("wiktionary_words")
+      .select("id, word, reading_paiboon, pos_title, pos, meaning, meaning_en, frequency, reading_normalized")
+      .ilike(column, `%${q}%`)
+      .order("id", { ascending: true }));
+  }
+
+  if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
+
+  // 同じ見出し語（word）の行を1つにまとめる
+  // Map は追加した順番を保つので、id 順に並んだまま entries が作られる
+  const groups = new Map();
+
+  for (const row of data ?? []) {
+    // その見出し語が初めて出てきたら、まとめ用のオブジェクトを作る
+    if (!groups.has(row.word)) {
+      groups.set(row.word, {
+        word: row.word,
+        reading_paiboon: row.reading_paiboon,
+        frequency: row.frequency ?? 0,
+        reading_normalized: row.reading_normalized,
+        firstId: row.id,
+        entries: [],
+      });
+    }
+
+    const group = groups.get(row.word);
+
+    // 最初の行の読みが空だった場合は、後の行の読みで埋める
+    if (!group.reading_paiboon && row.reading_paiboon) group.reading_paiboon = row.reading_paiboon;
+    if (!group.reading_normalized && row.reading_normalized) group.reading_normalized = row.reading_normalized;
+
+    // frequency は行の中で一番大きい値、firstId は一番小さい id にする
+    group.frequency = Math.max(group.frequency, row.frequency ?? 0);
+    group.firstId = Math.min(group.firstId, row.id);
+
+    // 品詞ごとの中身を追加する
+    group.entries.push({
+      pos_title: row.pos_title,
+      pos: row.pos,
+      meaning: row.meaning,
+      meaning_en: row.meaning_en,
+    });
+  }
+
+  /**
+   * まとめた見出し語1つにスコアをつける関数
+   * 読みモード：
+   *   6: 完全一致（正規化なし）
+   *   5: 完全一致（正規化後）
+   *   4: 前方一致（正規化なし）
+   *   3: 前方一致（正規化後）
+   *   2: 部分一致（正規化なし）
+   *   1: 部分一致（正規化後）
+   *   null: どれにも一致しない → 除外
+   * 意味モード（タイ語入力）：
+   *   3: word の完全一致
+   *   2: word の前方一致
+   *   1: word の部分一致
+   * 意味モード（英語入力）：meaning_en をカンマで1語ずつに分けて比べる（大文字小文字は区別しない）
+   *   3: どれかの語と完全一致
+   *   2: どれかの語と前方一致
+   *   1: それ以外の部分一致
+   */
+  function calcScore(group) {
+    if (mode === "reading") {
+      const r = group.reading_normalized ?? "";
+      const rNorm = normalizeReading(r);
+
+      if (r === q) return 6;
+      if (rNorm === q) return 5;
+      if (r.startsWith(q)) return 4;
+      if (rNorm.startsWith(q)) return 3;
+      if (r.includes(q)) return 2;
+      if (rNorm.includes(q)) return 1;
+      return null;
+    }
+
+    if (lang === "thai") {
+      if (group.word === q) return 3;
+      if (group.word.startsWith(q)) return 2;
+      return 1;
+    }
+
+    // 英語入力：全 entries の meaning_en をカンマで分けて、小文字の語のリストにする
+    const qLower = q.toLowerCase();
+    const terms = group.entries
+      .flatMap((entry) => (entry.meaning_en ?? "").split(","))
+      .map((term) => term.trim().toLowerCase())
+      .filter((term) => term !== "");
+
+    if (terms.includes(qLower)) return 3;
+    if (terms.some((term) => term.startsWith(qLower))) return 2;
+    return 1;
+  }
+
+  // スコアをつけて並び替える（スコア降順 → frequency 降順 → firstId 昇順）
+  const allResults = [...groups.values()]
+    .map((group) => ({ ...group, score: calcScore(group) }))
+    .filter((group) => group.score !== null)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.frequency !== a.frequency) return b.frequency - a.frequency;
+      return a.firstId - b.firstId;
+    });
+
+  // 件数は「見出し語の数」で数える
   const count = allResults.length;
   const start = (page - 1) * PAGE_SIZE;
   const results = allResults.slice(start, start + PAGE_SIZE);
