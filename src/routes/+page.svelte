@@ -1,6 +1,32 @@
 <script>
   import { onMount } from "svelte";
 
+  // タブ定義（タブを追加するときはここに1行足す）
+  // ※ 下の byTab() でこの一覧を使うので、状態の宣言より前に置く
+  const TABS = [
+    { id: "ptj", label: "プログレ" },
+    { id: "gotthai", label: "ごったい" },
+    { id: "nabeta", label: "鍋田" },
+    { id: "pdic", label: "PDIC" },
+    { id: "thai", label: "ThaiLang" },
+  ];
+
+  /**
+   * 全タブ分の { タブID: 値 } を作って返す
+   * 例：byTab(null) → { ptj: null, gotthai: null, nabeta: null, pdic: null, thai: null }
+   * TABS から自動で作るので、タブを追加しても書き換え漏れが起きない
+   * @param {*} value - 各タブに入れる初期値
+   */
+  function byTab(value) {
+    return Object.fromEntries(
+      TABS.map((tab) => [
+        tab.id,
+        // 配列はタブごとに別々のものにする（同じ配列を共有しないため）
+        Array.isArray(value) ? [...value] : value,
+      ]),
+    );
+  }
+
   // 検索ワード
   let query = $state("");
 
@@ -8,21 +34,21 @@
   let activeTab = $state("ptj");
 
   // 各タブの検索結果と件数（全タブ分キャッシュする）
-  let allResults = $state({ ptj: [], gotthai: [], nabeta: [], pdic: [], thai: [] });
-  let counts = $state({ ptj: null, gotthai: null, nabeta: null, pdic: null, thai: null });
+  let allResults = $state(byTab([]));
+  let counts = $state(byTab(null));
 
   // 現在表示中の結果（アクティブタブのキャッシュを参照）
   let results = $derived(allResults[activeTab] ?? []);
 
   // ページネーション
   let currentPage = $state(1);
-  let totalPages = $state({ ptj: 1, gotthai: 1, nabeta: 1, pdic: 1, thai: 1 });
+  let totalPages = $state(byTab(1));
 
   // 検索中フラグ
   let loading = $state(false);
 
   // バックグラウンド検索中フラグ（タブごと）
-  let bgLoading = $state({ ptj: false, gotthai: false, nabeta: false, pdic: false, thai: false });
+  let bgLoading = $state(byTab(false));
 
   // 検索済みフラグ（初期表示で「見つかりませんでした」を出さないため）
   let searched = $state(false);
@@ -38,15 +64,6 @@
 
   // 既読フラグをLocalStorageから取得する（SSR対策でonMount内で取得）
   let helpRead = $state(true);
-
-  // タブ定義
-  const TABS = [
-    { id: "ptj", label: "プログレ" },
-    { id: "gotthai", label: "ごったい" },
-    { id: "nabeta", label: "鍋田" },
-    { id: "pdic", label: "PDIC" },
-    { id: "thai", label: "ThaiLang" },
-  ];
 
   /**
    * 検索を実行する
@@ -66,10 +83,10 @@
     searched = true;
     currentPage = 1;
 
-    // 全タブの件数・結果をリセットする
-    counts = { ptj: null, gotthai: null, nabeta: null, pdic: null, thai: null };
-    allResults = { ptj: [], gotthai: [], nabeta: [], thai: [] };
-    totalPages = { ptj: 1, gotthai: 1, nabeta: 1, thai: 1 };
+    // 全タブの件数・結果をリセットする（TABSにある全タブが対象）
+    counts = byTab(null);
+    allResults = byTab([]);
+    totalPages = byTab(1);
 
     // 入力言語を判定
     const lang = detectLang(query);
@@ -139,10 +156,11 @@
    */
   function clearQuery() {
     query = "";
-    allResults = { ptj: [], gotthai: [], nabeta: [], pdic: [], thai: [] };
+    // 全タブの結果・件数・ページ数をリセットする（TABSにある全タブが対象）
+    allResults = byTab([]);
     searched = false;
-    counts = { ptj: null, gotthai: null, nabeta: null, pdic: null, thai: null };
-    totalPages = { ptj: 1, gotthai: 1, nabeta: 1, pdic: 1, thai: 1 };
+    counts = byTab(null);
+    totalPages = byTab(1);
     currentPage = 1;
     errorMessage = "";
   }
@@ -574,7 +592,9 @@
     font-size: 14px;
     cursor: pointer;
     color: #666;
+    /* はみ出しても縮めない（横スクロールさせるため） */
     flex-shrink: 0;
+    /* タブの文字を折り返さない */
     white-space: nowrap;
   }
 
