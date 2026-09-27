@@ -445,10 +445,13 @@ async function searchGotthai(q, mode, lang, page) {
     ({ data, error: fetchError } = await fetchAll(() => supabase.rpc("search_words_by_reading", { q })));
   } else {
     // 意味モード：カラムを決めてSupabase側でフィルタリングする（1000件を超えても全件取得）
-    const column = lang === "thai" ? "thai" : "meaning";
+    // タイ語入力：目次用の列 thai_trgm を、同じ置き換えをした検索ワードで探す（声調記号があっても目次が効いて速い）
+    // それ以外：meaning をそのまま探す（今まで通り）
+    const column = lang === "thai" ? "thai_trgm" : "meaning";
+    const pattern = lang === "thai" ? `%${toTrgmText(q)}%` : `%${q}%`;
 
     ({ data, error: fetchError } = await fetchAll(() =>
-      supabase.from("words").select("id, no, url_no, url, thai, reading, meaning, frequency, formality, reading_normalized").ilike(column, `%${q}%`).order("url_no", { ascending: true }),
+      supabase.from("words").select("id, no, url_no, url, thai, reading, meaning, frequency, formality, reading_normalized").ilike(column, pattern).order("url_no", { ascending: true }),
     ));
   }
 
