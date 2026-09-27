@@ -11,11 +11,12 @@
     { id: "thai", label: "ThaiLang" },
     { id: "wiki", label: "Wiki" },
     { id: "orst", label: "学士院" },
+    { id: "translit", label: "音訳" },
   ];
 
   /**
    * 全タブ分の { タブID: 値 } を作って返す
-   * 例：byTab(null) → { ptj: null, gotthai: null, nabeta: null, pdic: null, thai: null }
+   * 例：byTab(null) → { ptj: null, gotthai: null, nabeta: null, pdic: null, thai: null, ... }
    * TABS から自動で作るので、タブを追加しても書き換え漏れが起きない
    * @param {*} value - 各タブに入れる初期値
    */
@@ -57,6 +58,10 @@
 
   // 検索モード（meaning: 意味検索 / reading: 読み検索）
   let searchMode = $state("meaning");
+
+  // 最後に検索したときの検索モード
+  // （検索後にラジオボタンを切り替えても、表示するメッセージが変わらないようにするため）
+  let searchedMode = $state("meaning");
 
   // エラーメッセージ
   let errorMessage = $state("");
@@ -123,6 +128,22 @@
   }
 
   /**
+   * 1つのタブの検索結果（1ページ目）を取得して返す
+   * 音訳タブは読み検索に対応していないので、読みモードのときはAPIを呼ばずに0件を返す
+   * @param {string} tabId - タブID
+   * @param {string} lang - 入力言語（thai / japanese / other）
+   */
+  async function fetchTab(tabId, lang) {
+    // 音訳タブ × 読みモード → APIを呼ばずに0件
+    if (tabId === "translit" && searchMode === "reading") {
+      return { results: [], count: 0, totalPages: 1 };
+    }
+
+    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&tab=${tabId}&mode=${searchMode}&lang=${lang}&page=1`);
+    return await res.json();
+  }
+
+  /**
    * 検索を実行する
    * 全タブの件数を取得してから、アクティブタブの結果を表示する
    */
@@ -140,6 +161,9 @@
     searched = true;
     currentPage = 1;
 
+    // 今回の検索モードを覚えておく
+    searchedMode = searchMode;
+
     // 全タブの件数・結果をリセットする（TABSにある全タブが対象）
     counts = byTab(null);
     allResults = byTab([]);
@@ -150,7 +174,7 @@
 
     // 優先タブ（LocalStorageから取得）を先に検索する
     const priorityTab = activeTab;
-    const priorityRes = await fetch(`/api/search?q=${encodeURIComponent(query)}&tab=${priorityTab}&mode=${searchMode}&lang=${lang}&page=1`).then((r) => r.json());
+    const priorityRes = await fetchTab(priorityTab, lang);
 
     // 優先タブの結果を即座に表示する
     counts = { ...counts, [priorityTab]: priorityRes.count ?? 0 };
@@ -164,15 +188,13 @@
 
     await Promise.all(
       otherTabs.map((tab) =>
-        fetch(`/api/search?q=${encodeURIComponent(query)}&tab=${tab.id}&mode=${searchMode}&lang=${lang}&page=1`)
-          .then((r) => r.json())
-          .then((data) => {
-            // 各タブの結果が返ってきたら件数だけ更新する
-            counts = { ...counts, [tab.id]: data.count ?? 0 };
-            allResults = { ...allResults, [tab.id]: data.results ?? [] };
-            totalPages = { ...totalPages, [tab.id]: data.totalPages ?? 1 };
-            bgLoading = { ...bgLoading, [tab.id]: false };
-          }),
+        fetchTab(tab.id, lang).then((data) => {
+          // 各タブの結果が返ってきたら件数だけ更新する
+          counts = { ...counts, [tab.id]: data.count ?? 0 };
+          allResults = { ...allResults, [tab.id]: data.results ?? [] };
+          totalPages = { ...totalPages, [tab.id]: data.totalPages ?? 1 };
+          bgLoading = { ...bgLoading, [tab.id]: false };
+        }),
       ),
     );
   }
@@ -324,10 +346,18 @@
     {/each}
   </div>
 
+  <!-- 音訳タブの説明文（検索前・検索後どちらでも表示する） -->
+  {#if activeTab === "translit"}
+    <p class="tab-note">王立学士院の音訳データを検索します。学士院準拠の外来語綴りが確認できます。多言語対応です。（necktie → เนกไท / เน็กไท, 東京 → โทเกียว / โตเกียว）</p>
+  {/if}
+
   <!-- 検索結果 -->
   <div class="results">
     {#if loading}
       <p class="message">検索中...</p>
+    {:else if searched && activeTab === "translit" && searchedMode === "reading"}
+      <!-- 音訳タブは読み検索に対応していない -->
+      <p class="message">音訳タブは読み検索に対応していません</p>
     {:else if searched && results.length === 0}
       <p class="message">見つかりませんでした</p>
     {:else}
@@ -511,6 +541,15 @@
                 {/if}
               </div>
             {/each}
+          </div>
+        {:else if activeTab === "translit"}
+          <!-- 音訳データの結果カード（1行＝1枚） -->
+          <div class="card">
+            <!-- 外来語（検索の対象なのでハイライトする） -->
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <div class="keyword">{@html highlight(item.foreign_word, query)}</div>
+            <!-- タイ語表記（区切り方に意味があるかもしれないので、データのまま表示する） -->
+            <div class="translit-thai">{item.thai_word}</div>
           </div>
         {:else}
           <!-- プログレッシブの結果カード -->
@@ -745,6 +784,17 @@
 
   .tab.active .count {
     color: #1a7f5a;
+  }
+
+  /* タブの説明文（音訳タブなど） */
+  .tab-note {
+    font-size: 13px;
+    color: #555;
+    background: #f5f5f5;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    line-height: 1.6;
   }
 
   /* 結果カード */
@@ -1001,5 +1051,11 @@
     background: #f0f0f0;
     border-radius: 4px;
     padding: 2px 8px;
+  }
+
+  /* 音訳：タイ語表記（タイ文字なので大きく表示） */
+  .translit-thai {
+    font-size: 20px;
+    color: #333;
   }
 </style>
