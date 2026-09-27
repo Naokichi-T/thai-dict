@@ -9,6 +9,7 @@
     { id: "nabeta", label: "鍋田" },
     { id: "pdic", label: "PDIC" },
     { id: "thai", label: "ThaiLang" },
+    { id: "wiki", label: "Wiki" },
   ];
 
   /**
@@ -376,6 +377,45 @@
                   <span class="category">{entry.category}</span>
                 {/if}
                 {@html highlight(entry.meaning, query, false)}
+              </div>
+            {/each}
+          </div>
+        {:else if activeTab === "wiki"}
+          <!-- Wiktionaryの結果カード（同じ見出し語の品詞をまとめて1枚で表示） -->
+          <div class="card">
+            <!-- 見出し語：クリックするとWiktionaryのページを別タブで開く -->
+            <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+            <div
+              class="keyword-link"
+              role="link"
+              tabindex="0"
+              onclick={() => window.open(`https://th.wiktionary.org/wiki/${encodeURIComponent(item.word)}`, "_blank")}
+              onkeydown={(e) => e.key === "Enter" && window.open(`https://th.wiktionary.org/wiki/${encodeURIComponent(item.word)}`, "_blank")}
+            >
+              {@html highlight(item.word, query)}
+            </div>
+            <!-- 読み（Paiboon式）：ないときは表示しない -->
+            {#if item.reading_paiboon}
+              <div class="reading">{item.reading_paiboon}</div>
+            {/if}
+            <!-- 品詞ごとのかたまりを順番に表示する -->
+            {#each item.entries as entry}
+              <div class="wiki-entry">
+                <!-- 品詞：pos_title（pos） の形。pos がないときは括弧なし -->
+                <div class="wiki-pos">
+                  {entry.pos_title}{#if entry.pos}（{entry.pos}）{/if}
+                </div>
+                <!-- 意味：改行ごとに1行ずつ表示する（検索対象外なのでハイライトしない） -->
+                <div class="wiki-meaning">
+                  {#each splitLines(entry.meaning) as line}
+                    <div>{line.text}</div>
+                  {/each}
+                </div>
+                <!-- 英語訳：ないときは表示しない（英語検索の対象なのでハイライトする） -->
+                {#if entry.meaning_en}
+                  <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                  <div class="wiki-meaning-en">{@html highlight(entry.meaning_en, query)}</div>
+                {/if}
               </div>
             {/each}
           </div>
@@ -792,5 +832,33 @@
   /* PDIC略語のフルネーム（タイ文字なので大きく表示） */
   .abbr-full {
     font-size: 20px;
+  }
+
+  /* Wiktionary：品詞ごとのかたまり（上に薄い区切り線） */
+  .wiki-entry {
+    border-top: 1px solid #e0e0e0;
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+
+  /* Wiktionary：品詞ラベル（小さいグレー） */
+  .wiki-pos {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 4px;
+  }
+
+  /* Wiktionary：意味（タイ語なので少し大きめ） */
+  .wiki-meaning {
+    font-size: 16px;
+    color: #333;
+    line-height: 1.6;
+  }
+
+  /* Wiktionary：英語訳（小さいグレー） */
+  .wiki-meaning-en {
+    font-size: 13px;
+    color: #888;
+    margin-top: 4px;
   }
 </style>
