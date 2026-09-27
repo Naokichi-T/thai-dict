@@ -7,6 +7,44 @@ const supabase = createClient(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY);
 // 1ページあたりの表示件数
 const PAGE_SIZE = 50;
 
+// Supabaseから1回で取得する件数（Supabaseの上限が1000件なので、それに合わせる）
+const BATCH_SIZE = 1000;
+
+// 取得する件数の上限（ヒットが多すぎるときに取得を繰り返しすぎないための安全装置）
+const MAX_ROWS = 10000;
+
+/**
+ * Supabaseの「1回で最大1000件」の制限を超えて、条件に合う行をまとめて取得する
+ * 1000件ずつ取得してつなげ、1000件未満しか返ってこなかったら終わりにする
+ * 取りすぎ防止のため、MAX_ROWS（10,000件）に達したらそこで止める
+ * ※ 分けて取得するので、クエリには必ず並び順（.order() や SQL関数内の ORDER BY）が必要
+ * @param {() => any} makeQuery - 呼ぶたびに新しいクエリを作って返す関数（.range() はこの中で付けない）
+ * @returns {Promise<{ data: any[] | null, error: any }>} 取得した全行、またはエラー
+ */
+async function fetchAll(makeQuery) {
+  let all = [];
+  let from = 0;
+
+  while (from < MAX_ROWS) {
+    // from 件目から 1000件分を取得する（例：0〜999、1000〜1999、…）
+    const { data, error } = await makeQuery().range(from, from + BATCH_SIZE - 1);
+
+    // エラーが起きたら、そこで止めてエラーを返す
+    if (error) return { data: null, error };
+
+    // 取得した分をつなげる
+    all = all.concat(data ?? []);
+
+    // 1000件未満しか返ってこなければ、もう続きはないので終わり
+    if (!data || data.length < BATCH_SIZE) break;
+
+    // 次の1000件へ
+    from += BATCH_SIZE;
+  }
+
+  return { data: all, error: null };
+}
+
 /**
  * 読み仮名を正規化する（JS側のスコアリング用）
  * ng→n、y→i、w→o の順に変換する
@@ -82,24 +120,24 @@ async function searchPtj(q, mode, lang, page) {
   let wordsData, wordsError, subData, subError;
 
   if (mode === "reading") {
-    // 読みモード：DB側のnormalize_reading関数で正規化して検索する
-    ({ data: wordsData, error: wordsError } = await supabase.rpc("search_ptj_words_by_reading", { q }));
-    ({ data: subData, error: subError } = await supabase.rpc("search_ptj_sub_by_reading", { q }));
+    // 読みモード：DB側のnormalize_reading関数で正規化して検索する（1000件を超えても全件取得）
+    ({ data: wordsData, error: wordsError } = await fetchAll(() => supabase.rpc("search_ptj_words_by_reading", { q })));
+    ({ data: subData, error: subError } = await fetchAll(() => supabase.rpc("search_ptj_sub_by_reading", { q })));
   } else {
-    // 意味モード：カラムを決めてSupabase側でフィルタリングする
+    // 意味モード：カラムを決めてSupabase側でフィルタリングする（1000件を超えても全件取得）
     const column = lang === "thai" ? "keyword" : "meaning";
 
-    ({ data: wordsData, error: wordsError } = await supabase
-      .from("ptj_words")
-      .select("id, no, keyword, reading, meaning, frequency, reading_normalized, reading_normalized_arr")
-      .ilike(column, `%${q}%`)
-      .order("no", { ascending: true }));
+    ({ data: wordsData, error: wordsError } = await fetchAll(() =>
+      supabase.from("ptj_words").select("id, no, keyword, reading, meaning, frequency, reading_normalized, reading_normalized_arr").ilike(column, `%${q}%`).order("no", { ascending: true }),
+    ));
 
-    ({ data: subData, error: subError } = await supabase
-      .from("ptj_sub")
-      .select("id, no, keyword, reading, meaning, parent_keyword, frequency, type, reading_normalized, reading_normalized_arr")
-      .ilike(column, `%${q}%`)
-      .order("no", { ascending: true }));
+    ({ data: subData, error: subError } = await fetchAll(() =>
+      supabase
+        .from("ptj_sub")
+        .select("id, no, keyword, reading, meaning, parent_keyword, frequency, type, reading_normalized, reading_normalized_arr")
+        .ilike(column, `%${q}%`)
+        .order("no", { ascending: true }),
+    ));
   }
 
   if (wordsError) return Response.json({ error: wordsError.message }, { status: 500 });
@@ -182,17 +220,15 @@ async function searchGotthai(q, mode, lang, page) {
   let data, fetchError;
 
   if (mode === "reading") {
-    // 読みモード：DB側のnormalize_reading関数で正規化して検索する
-    ({ data, error: fetchError } = await supabase.rpc("search_words_by_reading", { q }));
+    // 読みモード：DB側のnormalize_reading関数で正規化して検索する（1000件を超えても全件取得）
+    ({ data, error: fetchError } = await fetchAll(() => supabase.rpc("search_words_by_reading", { q })));
   } else {
-    // 意味モード：カラムを決めてSupabase側でフィルタリングする
+    // 意味モード：カラムを決めてSupabase側でフィルタリングする（1000件を超えても全件取得）
     const column = lang === "thai" ? "thai" : "meaning";
 
-    ({ data, error: fetchError } = await supabase
-      .from("words")
-      .select("id, no, url_no, url, thai, reading, meaning, frequency, formality, reading_normalized")
-      .ilike(column, `%${q}%`)
-      .order("url_no", { ascending: true }));
+    ({ data, error: fetchError } = await fetchAll(() =>
+      supabase.from("words").select("id, no, url_no, url, thai, reading, meaning, frequency, formality, reading_normalized").ilike(column, `%${q}%`).order("url_no", { ascending: true }),
+    ));
   }
 
   if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
@@ -250,7 +286,7 @@ async function searchGotthai(q, mode, lang, page) {
 /**
  * 鍋田辞書を検索する
  * タイ語・読みモード → Supabaseのnabeta_wordsを検索
- * 日本語／英語 → 本家サイトをスクレイピング
+ * 日本語／英語 → nabeta_jp_words.keywordを検索
  * @param {string} q - 検索ワード
  * @param {string} mode - 検索モード（meaning / reading）
  * @param {string} lang - 入力言語（thai / japanese / other）
@@ -259,7 +295,8 @@ async function searchGotthai(q, mode, lang, page) {
 async function searchNabeta(q, mode, lang, page) {
   // 日本語／英語の意味検索はnabeta_jp_words.keywordを検索する
   if (mode === "meaning" && lang !== "thai") {
-    const { data, error: fetchError } = await supabase.from("nabeta_jp_words").select("id, keyword, content").ilike("keyword", `%${q}%`);
+    // 1000件を超えても全件取得する（分けて取得するので、並び順として id 順を指定する）
+    const { data, error: fetchError } = await fetchAll(() => supabase.from("nabeta_jp_words").select("id, keyword, content").ilike("keyword", `%${q}%`).order("id", { ascending: true }));
 
     if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
 
@@ -290,8 +327,8 @@ async function searchNabeta(q, mode, lang, page) {
   }
 
   if (mode === "reading") {
-    // 読みモード：DB側のnormalize_reading関数で正規化して検索する
-    const { data, error: fetchError } = await supabase.rpc("search_nabeta_by_reading", { q });
+    // 読みモード：DB側のnormalize_reading関数で正規化して検索する（1000件を超えても全件取得）
+    const { data, error: fetchError } = await fetchAll(() => supabase.rpc("search_nabeta_by_reading", { q }));
     if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
 
     /**
@@ -333,8 +370,10 @@ async function searchNabeta(q, mode, lang, page) {
     return Response.json({ results, count, page, totalPages: Math.ceil(count / PAGE_SIZE) });
   }
 
-  // タイ語検索（wordカラムの部分一致）
-  const { data, error: fetchError } = await supabase.from("nabeta_words").select("id, no, word, meaning, reading, reading_normalized").ilike("word", `%${q}%`).order("no", { ascending: true });
+  // タイ語検索（wordカラムの部分一致、1000件を超えても全件取得）
+  const { data, error: fetchError } = await fetchAll(() =>
+    supabase.from("nabeta_words").select("id, no, word, meaning, reading, reading_normalized").ilike("word", `%${q}%`).order("no", { ascending: true }),
+  );
 
   if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
 
@@ -442,17 +481,15 @@ async function searchThaiWords(q, mode, lang, page) {
   let data, fetchError;
 
   if (mode === "reading") {
-    // 読みモード：DB側のnormalize_reading関数で正規化して検索する
-    ({ data, error: fetchError } = await supabase.rpc("search_thai_words_by_reading", { q }));
+    // 読みモード：DB側のnormalize_reading関数で正規化して検索する（1000件を超えても全件取得）
+    ({ data, error: fetchError } = await fetchAll(() => supabase.rpc("search_thai_words_by_reading", { q })));
   } else {
-    // 意味モード：カラムを決めてSupabase側でフィルタリングする
+    // 意味モード：カラムを決めてSupabase側でフィルタリングする（1000件を超えても全件取得）
     const column = lang === "thai" ? "word" : "meaning";
 
-    ({ data, error: fetchError } = await supabase
-      .from("thai_words")
-      .select("id, no, word, reading, meaning, url, frequency, reading_normalized")
-      .ilike(column, `%${q}%`)
-      .order("no", { ascending: true }));
+    ({ data, error: fetchError } = await fetchAll(() =>
+      supabase.from("thai_words").select("id, no, word, reading, meaning, url, frequency, reading_normalized").ilike(column, `%${q}%`).order("no", { ascending: true }),
+    ));
   }
 
   if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
@@ -510,8 +547,9 @@ async function searchThaiWords(q, mode, lang, page) {
 /**
  * PDIC辞書（pdic_words + pdic_abbr）を検索する
  * タイ語入力 → 両テーブルを検索してマージ
- * 日本語入力 → pdic_words.meaning のみ
- * 読みモード → pdic_words.reading のみ
+ * 日本語入力 → pdic_ja_words.disp
+ * 英語入力 → pdic_words.sample
+ * 読みモード → pdic_words.reading_normalized（SQL関数）
  * @param {string} q - 検索ワード
  * @param {string} mode - 検索モード（meaning / reading）
  * @param {string} lang - 入力言語（thai / japanese / other）
@@ -522,28 +560,28 @@ async function searchPdic(q, mode, lang, page) {
   let abbrData = [];
 
   if (mode === "reading") {
-    // 読みモード：reading_normalized で RPC 関数を使って検索する
-    const { data, error } = await supabase.rpc("search_pdic_by_reading", { q });
+    // 読みモード：reading_normalized で RPC 関数を使って検索する（1000件を超えても全件取得）
+    const { data, error } = await fetchAll(() => supabase.rpc("search_pdic_by_reading", { q }));
     if (error) return Response.json({ error: error.message }, { status: 500 });
     wordsData = data ?? [];
   } else if (lang === "thai") {
-    // タイ語入力：pdic_words.word + pdic_abbr.word を両方検索
+    // タイ語入力：pdic_words.word + pdic_abbr.word を両方検索（1000件を超えても全件取得）
     const [wordsRes, abbrRes] = await Promise.all([
-      supabase.from("pdic_words").select("id, no, word, reading, meaning, sample, frequency").ilike("word", `%${q}%`).order("no", { ascending: true }),
-      supabase.from("pdic_abbr").select("id, no, word, full_word").ilike("word", `%${q}%`).order("no", { ascending: true }),
+      fetchAll(() => supabase.from("pdic_words").select("id, no, word, reading, meaning, sample, frequency").ilike("word", `%${q}%`).order("no", { ascending: true })),
+      fetchAll(() => supabase.from("pdic_abbr").select("id, no, word, full_word").ilike("word", `%${q}%`).order("no", { ascending: true })),
     ]);
     if (wordsRes.error) return Response.json({ error: wordsRes.error.message }, { status: 500 });
     if (abbrRes.error) return Response.json({ error: abbrRes.error.message }, { status: 500 });
     wordsData = wordsRes.data ?? [];
     abbrData = abbrRes.data ?? [];
   } else if (lang === "japanese") {
-    // 日本語入力：pdic_ja_words.disp を検索する
-    const { data, error } = await supabase.from("pdic_ja_words").select("id, no, disp, trans, phone").ilike("disp", `%${q}%`).order("no", { ascending: true });
+    // 日本語入力：pdic_ja_words.disp を検索する（1000件を超えても全件取得）
+    const { data, error } = await fetchAll(() => supabase.from("pdic_ja_words").select("id, no, disp, trans, phone").ilike("disp", `%${q}%`).order("no", { ascending: true }));
     if (error) return Response.json({ error: error.message }, { status: 500 });
     wordsData = data ?? [];
   } else {
-    // 英語入力：pdic_words.sample を検索する
-    const { data, error } = await supabase.from("pdic_words").select("id, no, word, reading, meaning, sample, frequency").ilike("sample", `%${q}%`).order("no", { ascending: true });
+    // 英語入力：pdic_words.sample を検索する（1000件を超えても全件取得）
+    const { data, error } = await fetchAll(() => supabase.from("pdic_words").select("id, no, word, reading, meaning, sample, frequency").ilike("sample", `%${q}%`).order("no", { ascending: true }));
     if (error) return Response.json({ error: error.message }, { status: 500 });
     wordsData = data ?? [];
   }
@@ -630,17 +668,19 @@ async function searchWiktionary(q, mode, lang, page) {
   let data, fetchError;
 
   if (mode === "reading") {
-    // 読みモード：DB側のnormalize_reading関数で正規化して検索する
-    ({ data, error: fetchError } = await supabase.rpc("search_wiktionary_by_reading", { q }));
+    // 読みモード：DB側のnormalize_reading関数で正規化して検索する（1000件を超えても全件取得）
+    ({ data, error: fetchError } = await fetchAll(() => supabase.rpc("search_wiktionary_by_reading", { q })));
   } else {
-    // 意味モード：タイ語入力なら word、英語入力なら meaning_en を検索する
+    // 意味モード：タイ語入力なら word、英語入力なら meaning_en を検索する（1000件を超えても全件取得）
     const column = lang === "thai" ? "word" : "meaning_en";
 
-    ({ data, error: fetchError } = await supabase
-      .from("wiktionary_words")
-      .select("id, word, reading_paiboon, pos_title, pos, meaning, meaning_en, frequency, reading_normalized")
-      .ilike(column, `%${q}%`)
-      .order("id", { ascending: true }));
+    ({ data, error: fetchError } = await fetchAll(() =>
+      supabase
+        .from("wiktionary_words")
+        .select("id, word, reading_paiboon, pos_title, pos, meaning, meaning_en, frequency, reading_normalized")
+        .ilike(column, `%${q}%`)
+        .order("id", { ascending: true }),
+    ));
   }
 
   if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
@@ -770,15 +810,13 @@ async function searchOrst(q, mode, lang, page) {
   let data, fetchError;
 
   if (mode === "reading") {
-    // 読みモード：DB側のnormalize_reading関数で正規化して検索する
-    ({ data, error: fetchError } = await supabase.rpc("search_orst_by_reading", { q }));
+    // 読みモード：DB側のnormalize_reading関数で正規化して検索する（1000件を超えても全件取得）
+    ({ data, error: fetchError } = await fetchAll(() => supabase.rpc("search_orst_by_reading", { q })));
   } else {
-    // 意味モード（タイ語入力）：word を部分一致で検索する
-    ({ data, error: fetchError } = await supabase
-      .from("orst_words")
-      .select("id, word, sense_label, sense_no, meaning, related_words, frequency, reading_normalized")
-      .ilike("word", `%${q}%`)
-      .order("id", { ascending: true }));
+    // 意味モード（タイ語入力）：word を部分一致で検索する（1000件を超えても全件取得）
+    ({ data, error: fetchError } = await fetchAll(() =>
+      supabase.from("orst_words").select("id, word, sense_label, sense_no, meaning, related_words, frequency, reading_normalized").ilike("word", `%${q}%`).order("id", { ascending: true }),
+    ));
   }
 
   if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
@@ -890,12 +928,10 @@ async function searchTransliteration(q, mode, page) {
     return Response.json({ results: [], count: 0, page, totalPages: 1 });
   }
 
-  // foreign_word を部分一致で検索する（ilike は大文字小文字を区別しない）
-  const { data, error: fetchError } = await supabase
-    .from("orst_transliterations")
-    .select("id, pointer_id, sub_language_id, foreign_word, thai_word")
-    .ilike("foreign_word", `%${q}%`)
-    .order("id", { ascending: true });
+  // foreign_word を部分一致で検索する（ilike は大文字小文字を区別しない、1000件を超えても全件取得）
+  const { data, error: fetchError } = await fetchAll(() =>
+    supabase.from("orst_transliterations").select("id, pointer_id, sub_language_id, foreign_word, thai_word").ilike("foreign_word", `%${q}%`).order("id", { ascending: true }),
+  );
 
   if (fetchError) return Response.json({ error: fetchError.message }, { status: 500 });
 
