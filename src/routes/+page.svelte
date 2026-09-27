@@ -127,6 +127,85 @@
     openRelated = next;
   }
 
+  // 参考訳の状態を、カードごと（"タブ名:見出し語"）に覚えておく
+  // 例：refTranslations["wiki:เขา"] = { status: "done", open: true, blocks: [["訳1"], ["訳2"]], error: "" }
+  //   status：loading（取得中）/ done（取得済み）/ error（失敗）
+  //   open：訳を表示しているかどうか
+  //   blocks：品詞（語義）ごと・行ごとの訳（元の行と同じ並び。訳がない行は ""）
+  //   error：失敗したときのメッセージ
+  let refTranslations = $state({});
+
+  /**
+   * 参考訳ボタンを押したときの処理
+   * 取得済みなら表示／非表示を切り替えるだけ（APIは呼ばない）、まだなら DeepL で訳を取得して表示する
+   * @param {string} key - "タブ名:見出し語"（例："wiki:เขา"）
+   * @param {string[][]} blocks - 品詞（語義）ごとの、行の配列（例：[["1行目", "2行目"], ["1行目"]]）
+   */
+  async function toggleReference(key, blocks) {
+    const current = refTranslations[key];
+
+    // 取得中は何もしない（二重に押されても API を2回呼ばないため）
+    if (current?.status === "loading") return;
+
+    // 取得済みなら、表示／非表示を切り替えるだけ（APIは呼ばない＝文字数を使わない）
+    if (current?.status === "done") {
+      refTranslations = { ...refTranslations, [key]: { ...current, open: !current.open } };
+      return;
+    }
+
+    // 空でない行だけを1つの配列に集める（あとで振り分けられるよう、何番目の品詞の何行目かも覚えておく）
+    const positions = [];
+    const texts = [];
+    blocks.forEach((lines, blockIndex) => {
+      lines.forEach((line, lineIndex) => {
+        if (line.trim() !== "") {
+          positions.push({ blockIndex, lineIndex });
+          texts.push(line);
+        }
+      });
+    });
+
+    // 取得中の状態にする（ボタンが「取得中...」になる）
+    refTranslations = { ...refTranslations, [key]: { status: "loading", open: false, blocks: [], error: "" } };
+
+    try {
+      // 翻訳APIに、集めた行をまとめて送る
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texts }),
+      });
+      const data = await res.json();
+
+      // エラーが返ってきたら、そのメッセージを覚えておく（ボタンの上に赤字で出す）
+      if (!res.ok || data.error) {
+        refTranslations = {
+          ...refTranslations,
+          [key]: { status: "error", open: false, blocks: [], error: data.error ?? "翻訳に失敗しました。もう一度お試しください。" },
+        };
+        return;
+      }
+
+      // 元の行と同じ並びの入れ物を作る（最初はすべて ""）
+      const translatedBlocks = blocks.map((lines) => lines.map(() => ""));
+
+      // 返ってきた訳を、覚えておいた位置（何番目の品詞の何行目か）に振り分ける
+      data.translations.forEach((translation, index) => {
+        const { blockIndex, lineIndex } = positions[index];
+        translatedBlocks[blockIndex][lineIndex] = translation;
+      });
+
+      // 取得済み・表示中の状態にする
+      refTranslations = { ...refTranslations, [key]: { status: "done", open: true, blocks: translatedBlocks, error: "" } };
+    } catch (e) {
+      // 通信エラーなどで API に届かなかった場合
+      refTranslations = {
+        ...refTranslations,
+        [key]: { status: "error", open: false, blocks: [], error: "翻訳に失敗しました。もう一度お試しください。" },
+      };
+    }
+  }
+
   /**
    * 1つのタブの検索結果（1ページ目）を取得して返す
    * 音訳タブは読み検索に対応していないので、読みモードのときはAPIを呼ばずに0件を返す
@@ -480,6 +559,9 @@
             {/each}
           </div>
         {:else if activeTab === "wiki"}
+          <!-- このカードの参考訳の名前（"wiki:見出し語"）と、その状態 -->
+          {@const refKey = `wiki:${item.word}`}
+          {@const ref = refTranslations[refKey]}
           <!-- Wiktionaryの結果カード（同じ見出し語の品詞をまとめて1枚で表示） -->
           <div class="card">
             <!-- 見出し語：クリックするとWiktionaryのページを別タブで開く -->
@@ -497,8 +579,8 @@
             {#if item.reading_paiboon}
               <div class="reading">{item.reading_paiboon}</div>
             {/if}
-            <!-- 品詞ごとのかたまりを順番に表示する -->
-            {#each item.entries as entry}
+            <!-- 品詞ごとのかたまりを順番に表示する（entryIndex：何番目の品詞か） -->
+            {#each item.entries as entry, entryIndex}
               <div class="wiki-entry">
                 <!-- 品詞：pos_title（pos） の形。pos がないときは括弧なし -->
                 <div class="wiki-pos">
@@ -506,8 +588,12 @@
                 </div>
                 <!-- 意味：改行ごとに1行ずつ表示する（検索対象外なのでハイライトしない） -->
                 <div class="wiki-meaning">
-                  {#each splitLines(entry.meaning) as line}
+                  {#each splitLines(entry.meaning) as line, lineIndex}
                     <div>{line.text}</div>
+                    <!-- 参考訳を表示中なら、その行の訳をすぐ下に出す -->
+                    {#if ref?.open && ref.blocks[entryIndex]?.[lineIndex]}
+                      <div class="ref-line">→ {ref.blocks[entryIndex][lineIndex]}</div>
+                    {/if}
                   {/each}
                 </div>
                 <!-- 英語訳：ないときは表示しない（英語検索の対象なのでハイライトする） -->
@@ -517,6 +603,30 @@
                 {/if}
               </div>
             {/each}
+            <!-- 参考訳ボタンとエラーメッセージ -->
+            <div class="ref-area">
+              {#if ref?.status === "error"}
+                <div class="ref-error">{ref.error}</div>
+              {/if}
+              <button
+                class="ref-btn"
+                disabled={ref?.status === "loading"}
+                onclick={() =>
+                  toggleReference(
+                    refKey,
+                    // 品詞ごとに、意味を1行ずつに分けた配列を渡す
+                    item.entries.map((entry) => splitLines(entry.meaning).map((line) => line.text)),
+                  )}
+              >
+                {#if ref?.status === "loading"}
+                  取得中...
+                {:else if ref?.open}
+                  閉じる
+                {:else}
+                  参考訳
+                {/if}
+              </button>
+            </div>
           </div>
         {:else if activeTab === "orst"}
           <!-- 王立学士院辞書の結果カード（同じ見出し語の語義をまとめて1枚で表示） -->
@@ -1070,5 +1180,47 @@
   .translit-thai {
     font-size: 20px;
     color: #333;
+  }
+
+  /* 参考訳：訳の1行（元の行のすぐ下に、小さめ・色つきで表示） */
+  .ref-line {
+    font-size: 14px;
+    color: #3a6f96;
+    margin-bottom: 4px;
+  }
+
+  /* 参考訳：ボタンとエラーメッセージを入れる場所（上に薄い区切り線） */
+  .ref-area {
+    border-top: 1px solid #e0e0e0;
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+
+  /* 参考訳：ボタン（緑の枠線だけの控えめなボタン） */
+  .ref-btn {
+    padding: 4px 12px;
+    background: white;
+    color: #1a7f5a;
+    border: 1px solid #1a7f5a;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .ref-btn:hover:not(:disabled) {
+    background: #eef8f3;
+  }
+
+  /* 参考訳：取得中は押せない見た目にする */
+  .ref-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  /* 参考訳：エラーメッセージ（赤字） */
+  .ref-error {
+    font-size: 13px;
+    color: #e53e3e;
+    margin-bottom: 6px;
   }
 </style>
