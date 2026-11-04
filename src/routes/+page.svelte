@@ -1,5 +1,7 @@
 <script>
   import { onMount } from "svelte";
+  // 検索履歴の読み込み・追加・削除（中身は src/lib/searchHistory.js）
+  import { loadHistory, addHistory, removeHistory, clearHistory } from "$lib/searchHistory.js";
 
   // タブ定義（タブを追加するときはここに1行足す）
   // ※ 下の byTab() でこの一覧を使うので、状態の宣言より前に置く
@@ -75,6 +77,10 @@
 
   // 既読フラグをLocalStorageから取得する（SSR対策でonMount内で取得）
   let helpRead = $state(true);
+
+  // 検索履歴（新しいものが先頭）。例：[{ query: "เขา", mode: "meaning" }, ...]
+  // localStorage はブラウザにしかないので、最初は空にしておき onMount で読み込む
+  let history = $state([]);
 
   // 学士院：派生語を開いている語義を覚えておく（"見出し語-sense_no" の形で入れる）
   // Set は中身を変えても画面が更新されないことがあるので、変えるときは作り直す
@@ -265,6 +271,9 @@
     }
     errorMessage = "";
 
+    // 検索履歴に追加する（入力チェックを通った検索だけを残す）
+    history = addHistory(history, query.trim(), searchMode);
+
     loading = true;
     searched = true;
     currentPage = 1;
@@ -385,6 +394,34 @@
   }
 
   /**
+   * 検索履歴の言葉を押したときの処理
+   * その言葉を検索欄に入れ、モードも履歴のときに合わせて、すぐ検索する
+   * @param {{ query: string, mode: string }} item - 押した履歴
+   */
+  function searchFromHistory(item) {
+    query = item.query;
+    searchMode = item.mode;
+    handleSearch();
+  }
+
+  /**
+   * 検索履歴の✕を押したときの処理（1件だけ消す）
+   * @param {number} index - 消す履歴の位置（0 が先頭）
+   */
+  function deleteHistoryItem(index) {
+    history = removeHistory(history, index);
+  }
+
+  /**
+   * 「すべて消す」を押したときの処理
+   * うっかり押して全部消えないよう、確認してから消す
+   */
+  function deleteAllHistory() {
+    if (!confirm("検索履歴をすべて消しますか？")) return;
+    history = clearHistory();
+  }
+
+  /**
    * テキスト内の検索ワードをハイライトするHTMLを返す
    * 大文字小文字は区別しない（「god」で検索したとき「God」にも色を付ける。検索の ilike と合わせるため）
    * 表示される文字はデータのまま（「God」は「God」のまま色が付く）
@@ -437,10 +474,11 @@
     return /^[\u0E00-\u0E7F\s\-]+$/.test(text.trim());
   }
 
-  // マウント時にLocalStorageからタブと既読フラグを復元する
+  // マウント時にLocalStorageからタブ・既読フラグ・検索履歴を復元する
   onMount(() => {
     activeTab = localStorage.getItem("thai_dict_active_tab") ?? "ptj";
     helpRead = localStorage.getItem("thai_dict_help_read") === "true";
+    history = loadHistory();
   });
 </script>
 
@@ -513,6 +551,32 @@
       <p class="message">音訳タブは読み検索に対応していません</p>
     {:else if searched && results.length === 0}
       <p class="message">見つかりませんでした</p>
+    {:else if !searched && history.length > 0}
+      <!-- 検索履歴（検索前・検索欄をクリアしたあとだけ表示する） -->
+      <div class="history">
+        <!-- 見出しと「すべて消す」ボタン -->
+        <div class="history-header">
+          <span class="history-title">検索履歴</span>
+          <button class="history-clear-all" onclick={deleteAllHistory}>すべて消す</button>
+        </div>
+        <!-- 履歴の一覧（新しい順に1行1語） -->
+        <ul class="history-list">
+          {#each history as item, index (item.mode + ":" + item.query)}
+            <li class="history-item">
+              <!-- 言葉の部分：押すとその言葉・モードで検索する -->
+              <button class="history-word" onclick={() => searchFromHistory(item)}>
+                <span class="history-query">{item.query}</span>
+                <!-- 読みモードで検索したものだけ「読み」と表示する -->
+                {#if item.mode === "reading"}
+                  <span class="history-mode">読み</span>
+                {/if}
+              </button>
+              <!-- ✕：この1件だけ消す -->
+              <button class="history-delete" onclick={() => deleteHistoryItem(index)} aria-label="この履歴を消す">✕</button>
+            </li>
+          {/each}
+        </ul>
+      </div>
     {:else}
       {#each results as item}
         {#if activeTab === "gotthai"}
@@ -1348,5 +1412,115 @@
     font-size: 13px;
     color: #e53e3e;
     margin-bottom: 6px;
+  }
+
+  /* 検索履歴：全体（タブとの間を少しあける） */
+  .history {
+    margin-top: 16px;
+  }
+
+  /* 検索履歴：見出しの行（左に「検索履歴」、右に「すべて消す」） */
+  .history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  /* 検索履歴：見出しの文字 */
+  .history-title {
+    font-size: 13px;
+    color: #888;
+  }
+
+  /* 検索履歴：「すべて消す」ボタン（目立たないグレーの文字だけ） */
+  .history-clear-all {
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 8px;
+  }
+
+  .history-clear-all:hover {
+    color: #e53e3e;
+  }
+
+  /* 検索履歴：一覧（箇条書きの点を消す） */
+  .history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  /* 検索履歴：1行（言葉のボタンと✕を横に並べる） */
+  .history-item {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid #f0f0f0;
+  }
+
+  /* 最後の行だけ下の線を消す（外枠と重ならないように） */
+  .history-item:last-child {
+    border-bottom: none;
+  }
+
+  /* 検索履歴：言葉の部分（行の幅いっぱいに広げて、スマホでも押しやすくする） */
+  .history-word {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: none;
+    border: none;
+    text-align: left;
+    font-family: "Sarabun", sans-serif;
+    font-size: 16px;
+    color: #333;
+    cursor: pointer;
+    /* 長い言葉でもはみ出さないようにする */
+    min-width: 0;
+  }
+
+  .history-word:hover {
+    background: #eef8f3;
+  }
+
+  /* 検索履歴：言葉（長いときは「…」で省略する） */
+  .history-query {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 検索履歴：「読み」の小さな印 */
+  .history-mode {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: #1a7f5a;
+    border: 1px solid #1a7f5a;
+    border-radius: 4px;
+    padding: 0 6px;
+  }
+
+  /* 検索履歴：✕ボタン（1件だけ消す） */
+  .history-delete {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    background: none;
+    border: none;
+    color: #bbb;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .history-delete:hover {
+    color: #e53e3e;
   }
 </style>
