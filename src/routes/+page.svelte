@@ -137,7 +137,7 @@
     openRelated = next;
   }
 
-  // 参考訳の状態を、カードごと（"タブ名:見出し語"）に覚えておく
+  // AI翻訳の状態を、カードごと（"タブ名:見出し語"）に覚えておく
   // 例：refTranslations["wiki:เขา"] = { status: "done", open: true, blocks: [["訳1"], ["訳2"]], error: "" }
   //   status：loading（取得中）/ done（取得済み）/ error（失敗）
   //   open：訳を表示しているかどうか
@@ -146,7 +146,7 @@
   let refTranslations = $state({});
 
   /**
-   * 参考訳ボタンを押したときの処理
+   * AI翻訳ボタンを押したときの処理
    * 取得済みなら表示／非表示を切り替えるだけ（APIは呼ばない）、まだなら DeepL で訳を取得して表示する
    * @param {string} key - "タブ名:見出し語"（例："wiki:เขา"）
    * @param {string[][]} blocks - 品詞（語義）ごとの、行の配列（例：[["1行目", "2行目"], ["1行目"]]）
@@ -684,7 +684,7 @@
             {/each}
           </div>
         {:else if activeTab === "wiki"}
-          <!-- このカードの参考訳の名前（"wiki:見出し語"）と、その状態 -->
+          <!-- このカードのAI翻訳の名前（"wiki:見出し語"）と、その状態 -->
           {@const refKey = `wiki:${item.word}`}
           {@const ref = refTranslations[refKey]}
           <!-- Wiktionaryの結果カード（同じ見出し語の品詞をまとめて1枚で表示） -->
@@ -715,7 +715,7 @@
                 <div class="wiki-meaning">
                   {#each splitLines(entry.meaning) as line, lineIndex}
                     <div>{line.text}</div>
-                    <!-- 参考訳を表示中なら、その行の訳をすぐ下に出す -->
+                    <!-- AI翻訳を表示中なら、その行の訳をすぐ下に出す -->
                     {#if ref?.open && ref.blocks[entryIndex]?.[lineIndex]}
                       <div class="ref-line">→ {ref.blocks[entryIndex][lineIndex]}</div>
                     {/if}
@@ -728,7 +728,7 @@
                 {/if}
               </div>
             {/each}
-            <!-- 参考訳ボタンとエラーメッセージ -->
+            <!-- AI翻訳ボタンとエラーメッセージ -->
             <div class="ref-area">
               {#if ref?.status === "error"}
                 <div class="ref-error">{ref.error}</div>
@@ -750,13 +750,13 @@
                 {:else if ref?.open}
                   閉じる
                 {:else}
-                  参考訳
+                  AI翻訳
                 {/if}
               </button>
             </div>
           </div>
         {:else if activeTab === "orst"}
-          <!-- このカードの参考訳の名前（"orst:見出し語"）と、その状態 -->
+          <!-- このカードのAI翻訳の名前（"orst:見出し語"）と、その状態 -->
           {@const refKey = `orst:${item.word}`}
           {@const ref = refTranslations[refKey]}
           <!-- 王立学士院辞書の結果カード（同じ見出し語の語義をまとめて1枚で表示） -->
@@ -775,7 +775,7 @@
                 <div class="orst-meaning">
                   {#each splitSenseNumbers(sense.meaning) as line, lineIndex}
                     <div>{line}</div>
-                    <!-- 参考訳を表示中なら、その行の訳をすぐ下に出す -->
+                    <!-- AI翻訳を表示中なら、その行の訳をすぐ下に出す -->
                     {#if ref?.open && ref.blocks[senseIndex]?.[lineIndex]}
                       <div class="ref-line">→ {ref.blocks[senseIndex][lineIndex]}</div>
                     {/if}
@@ -798,7 +798,7 @@
                 {/if}
               </div>
             {/each}
-            <!-- 参考訳ボタンとエラーメッセージ -->
+            <!-- AI翻訳ボタンとエラーメッセージ -->
             <div class="ref-area">
               {#if ref?.status === "error"}
                 <div class="ref-error">{ref.error}</div>
@@ -820,7 +820,7 @@
                 {:else if ref?.open}
                   閉じる
                 {:else}
-                  参考訳
+                  AI翻訳
                 {/if}
               </button>
             </div>
@@ -1372,21 +1372,21 @@
     color: #333;
   }
 
-  /* 参考訳：訳の1行（元の行のすぐ下に、小さめ・色つきで表示） */
+  /* AI翻訳：訳の1行（元の行のすぐ下に、小さめ・色つきで表示） */
   .ref-line {
     font-size: 14px;
     color: #3a6f96;
     margin-bottom: 4px;
   }
 
-  /* 参考訳：ボタンとエラーメッセージを入れる場所（上に薄い区切り線） */
+  /* AI翻訳：ボタンとエラーメッセージを入れる場所（上に薄い区切り線） */
   .ref-area {
     border-top: 1px solid #e0e0e0;
     margin-top: 8px;
     padding-top: 8px;
   }
 
-  /* 参考訳：ボタン（緑の枠線だけの控えめなボタン） */
+  /* AI翻訳：ボタン（緑の枠線だけの控えめなボタン） */
   .ref-btn {
     padding: 4px 12px;
     background: white;
@@ -1401,13 +1401,13 @@
     background: #eef8f3;
   }
 
-  /* 参考訳：取得中は押せない見た目にする */
+  /* AI翻訳：取得中は押せない見た目にする */
   .ref-btn:disabled {
     opacity: 0.6;
     cursor: default;
   }
 
-  /* 参考訳：エラーメッセージ（赤字） */
+  /* AI翻訳：エラーメッセージ（赤字） */
   .ref-error {
     font-size: 13px;
     color: #e53e3e;
